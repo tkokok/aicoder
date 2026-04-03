@@ -276,7 +276,7 @@ export class OpenCodeClient {
    * Create a new session
    */
   async createSession(): Promise<{ data: Session }> {
-    const response = await this.http.post<{ data: { id: string } }>('/session');
+    const response = await this.http.post<{ data: { id: string } }>('/session', {});
     return {
       data: {
         id: response.data.id,
