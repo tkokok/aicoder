@@ -13,6 +13,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     opencode_session_id TEXT,
+    project_path TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     created_at INTEGER NOT NULL,
     completed_at INTEGER

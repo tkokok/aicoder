@@ -4,6 +4,7 @@ import { validateSessionInput, SessionInput } from './validation';
 import { createOpenCodeClient } from './opencode';
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
+import { homedir } from 'os';
 
 interface CreateSessionBody {
   projectName: unknown;
@@ -29,6 +30,34 @@ function requireString(value: unknown, fieldName: string): string {
   return value.trim();
 }
 
+/**
+ * Sanitizes project name for filesystem safety.
+ * Removes or replaces characters that are unsafe for file/directory names.
+ */
+function sanitizeProjectName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .substring(0, 100);
+}
+
+/**
+ * Creates project directory structure at ~/.aicoder/projects/{project_name}/
+ * Returns the project path.
+ */
+async function createProjectDirectory(projectName: string): Promise<string> {
+  const sanitized = sanitizeProjectName(projectName);
+  const baseDir = join(homedir(), '.aicoder', 'projects', sanitized);
+  
+  await mkdir(join(baseDir, '.opencode'), { recursive: true });
+  await mkdir(join(baseDir, 'workspace'), { recursive: true });
+  await mkdir(join(baseDir, 'logs'), { recursive: true });
+  
+  return baseDir;
+}
+
 export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Body: CreateSessionBody }>(
     '/api/sessions',
@@ -49,7 +78,19 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         });
       }
 
-      const opencodeClient = createOpenCodeClient();
+      const projectName = requireString(input.projectName, 'projectName');
+      let projectPath: string;
+      
+      try {
+        projectPath = await createProjectDirectory(projectName);
+      } catch (error) {
+        request.log.error({ err: error }, 'Failed to create project directory');
+        return reply.status(500).send({
+          error: 'Failed to create project directory',
+        });
+      }
+
+      const opencodeClient = createOpenCodeClient({ directory: projectPath });
       let opencodeSessionId: string;
 
       try {
@@ -67,26 +108,21 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       try {
         transaction(() => {
           db.prepare(
-            `INSERT INTO sessions (id, opencode_session_id, status, created_at) 
-             VALUES (?, ?, 'pending', ?)`
-          ).run(sessionId, opencodeSessionId, Date.now());
+            `INSERT INTO sessions (id, opencode_session_id, project_path, status, created_at) 
+             VALUES (?, ?, ?, 'pending', ?)`
+          ).run(sessionId, opencodeSessionId, projectPath, Date.now());
 
           db.prepare(
             `INSERT INTO session_inputs (session_id, project_name, requirements, tech_stack, dev_env, test_method)
              VALUES (?, ?, ?, ?, ?, ?)`
           ).run(
             sessionId,
-            requireString(input.projectName, 'projectName'),
+            projectName,
             requireString(input.requirements, 'requirements'),
             requireString(input.techStack, 'techStack'),
             input.devEnv ? requireString(input.devEnv, 'devEnv') : '',
             input.testMethod ? requireString(input.testMethod, 'testMethod') : ''
           );
-
-          const workspaceDir = join(process.cwd(), 'workspaces', sessionId);
-          mkdir(workspaceDir, { recursive: true }).catch((err) => {
-            request.log.error({ err }, 'Failed to create workspace directory');
-          });
         });
       } catch (error) {
         request.log.error({ err: error }, 'Failed to create session in database');
