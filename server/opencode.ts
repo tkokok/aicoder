@@ -7,6 +7,7 @@
 
 import { readFile, readdir } from 'fs/promises';
 import { join } from 'path';
+import { EventSource } from 'eventsource';
 
 // ============================================================================
 // Types
@@ -388,7 +389,7 @@ export class OpenCodeClient {
     
     const eventSource = new EventSource(url.toString());
     
-    eventSource.onmessage = (event) => {
+    eventSource.onmessage = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
         onEvent(data);
@@ -397,7 +398,7 @@ export class OpenCodeClient {
       }
     };
     
-    eventSource.onerror = (error) => {
+    eventSource.onerror = (error: Event) => {
       console.error('EventSource error:', error);
     };
     

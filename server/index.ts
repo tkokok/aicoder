@@ -6,13 +6,6 @@ import { createOpenCodeClient } from './opencode';
 const fastify = Fastify({
   logger: {
     level: 'info',
-    transport: {
-      target: 'pino-pretty',
-      options: {
-        translateTime: 'HH:MM:ss Z',
-        ignore: 'pid,hostname',
-      },
-    },
   },
 });
 

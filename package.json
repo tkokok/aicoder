@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "bun dist/server/index.js",
     "test": "echo \"No tests yet\" && exit 0",
     "lint": "echo \"No linter yet\" && exit 0"
   },
   "dependencies": {
     "@fastify/websocket": "^11.0.0",
     "better-sqlite3": "^11.7.0",
+    "eventsource": "^4.1.0",
     "fastify": "^5.2.0",
     "zod": "^4.3.6"
   },
