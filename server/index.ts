@@ -2,6 +2,8 @@ import Fastify from 'fastify';
 import { registerRoutes } from './routes';
 import websocketPlugin from './websocket';
 import { createOpenCodeClient } from './opencode';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
 
 const fastify = Fastify({
   logger: {
@@ -24,8 +26,15 @@ fastify.setNotFoundHandler((request, reply) => {
   });
 });
 
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
+
 async function start() {
   try {
+    await fastify.register(import('@fastify/static'), {
+      root: join(__dirname, '../frontend'),
+      prefix: '/',
+    });
+
     await fastify.register(websocketPlugin, {
       opencodeClient,
     });

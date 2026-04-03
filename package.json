@@ -4,12 +4,13 @@
   "description": "AICoder MVP - AI-powered coding agent",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp frontend/*.html frontend/*.css dist/frontend/ 2>/dev/null || true",
     "start": "bun dist/server/index.js",
     "test": "echo \"No tests yet\" && exit 0",
     "lint": "echo \"No linter yet\" && exit 0"
   },
   "dependencies": {
+    "@fastify/static": "^9.0.0",
     "@fastify/websocket": "^11.0.0",
     "better-sqlite3": "^11.7.0",
     "eventsource": "^4.1.0",
