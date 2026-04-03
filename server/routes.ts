@@ -3,7 +3,7 @@ import { db, transaction, generateId } from './db';
 import { validateSessionInput, SessionInput } from './validation';
 import { OpenCodeManager } from './opencode';
 import { executePipeline } from './pipeline';
-import { mkdir } from 'fs/promises';
+import { mkdir, cp } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -52,11 +52,30 @@ function sanitizeProjectName(name: string): string {
 async function createProjectDirectory(projectName: string): Promise<string> {
   const sanitized = sanitizeProjectName(projectName);
   const baseDir = join(homedir(), '.aicoder', 'projects', sanitized);
-  
+
   await mkdir(join(baseDir, '.opencode'), { recursive: true });
+  await mkdir(join(baseDir, '.opencode', 'agent'), { recursive: true });
   await mkdir(join(baseDir, 'workspace'), { recursive: true });
   await mkdir(join(baseDir, 'logs'), { recursive: true });
-  
+
+  // Copy agents and schemas so OpenCode can load them
+  const agentsSrc = join(process.cwd(), 'agents');
+  const agentsDest = join(baseDir, '.opencode', 'agent');
+  const schemasSrc = join(process.cwd(), 'schemas');
+  const schemasDest = join(baseDir, 'schemas');
+
+  try {
+    await cp(agentsSrc, agentsDest, { recursive: true, force: true });
+  } catch {
+    // ignore copy errors
+  }
+
+  try {
+    await cp(schemasSrc, schemasDest, { recursive: true, force: true });
+  } catch {
+    // ignore copy errors
+  }
+
   return baseDir;
 }
 
@@ -173,7 +192,10 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         } catch {}
       });
 
-      executePipeline(userInput, {
+      executePipeline({
+        sessionId,
+        opencodeSessionId,
+        userInput,
         workspaceDir: projectPath,
         model,
       }).then((result) => {
