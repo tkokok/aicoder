@@ -18,6 +18,17 @@ interface SessionResponse {
   status: string;
 }
 
+/**
+ * Validates and returns a trimmed string from unknown input.
+ * Throws if value is not a string.
+ */
+function requireString(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`${fieldName} must be a string`);
+  }
+  return value.trim();
+}
+
 export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Body: CreateSessionBody }>(
     '/api/sessions',
@@ -65,11 +76,11 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
              VALUES (?, ?, ?, ?, ?, ?)`
           ).run(
             sessionId,
-            (input.projectName as string).trim(),
-            (input.requirements as string).trim(),
-            (input.techStack as string).trim(),
-            input.devEnv ? (input.devEnv as string).trim() : '',
-            input.testMethod ? (input.testMethod as string).trim() : ''
+            requireString(input.projectName, 'projectName'),
+            requireString(input.requirements, 'requirements'),
+            requireString(input.techStack, 'techStack'),
+            input.devEnv ? requireString(input.devEnv, 'devEnv') : '',
+            input.testMethod ? requireString(input.testMethod, 'testMethod') : ''
           );
 
           const workspaceDir = join(process.cwd(), 'workspaces', sessionId);

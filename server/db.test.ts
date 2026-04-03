@@ -76,13 +76,13 @@ describe('Database Schema', () => {
   });
 
   test('sessions.id is PRIMARY KEY', () => {
-    const tableInfo = testDb.prepare("PRAGMA table_info(sessions)").all();
-    const idColumn = tableInfo.find((col: any) => col.name === 'id');
-    expect(idColumn.pk).toBe(1);
+    const tableInfo = testDb.prepare("PRAGMA table_info(sessions)").all() as { name: string; pk: number }[];
+    const idColumn = tableInfo.find((col) => col.name === 'id');
+    expect(idColumn?.pk).toBe(1);
   });
 
   test('foreign key constraints are set up', () => {
-    const foreignKeys = testDb.prepare("PRAGMA foreign_key_list(session_inputs)").all();
+    const foreignKeys = testDb.prepare("PRAGMA foreign_key_list(session_inputs)").all() as { table: string }[];
     expect(foreignKeys.length).toBeGreaterThan(0);
     expect(foreignKeys[0].table).toBe('sessions');
   });

@@ -201,7 +201,9 @@ async function cleanupTestDatabase(): Promise<void> {
   }
   try {
     await rm(TEST_DB_PATH, { force: true });
-  } catch {}
+  } catch {
+    // Ignore - file may not exist or already cleaned up
+  }
 }
 
 /**

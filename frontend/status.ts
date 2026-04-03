@@ -84,7 +84,6 @@ class StatusPage {
       this.ws = new WebSocket(WS_URL);
 
       this.ws.onopen = () => {
-        console.log('WebSocket connected');
         this.reconnectAttempts = 0;
         this.updateConnectionStatus('connected');
         
@@ -111,7 +110,6 @@ class StatusPage {
       };
 
       this.ws.onclose = () => {
-        console.log('WebSocket disconnected');
         this.updateConnectionStatus('disconnected');
         this.scheduleReconnect();
       };
@@ -124,7 +122,6 @@ class StatusPage {
   private scheduleReconnect(): void {
     if (this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       this.reconnectAttempts++;
-      console.log(`Reconnecting in ${RECONNECT_DELAY}ms (attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
       setTimeout(() => this.connectWebSocket(), RECONNECT_DELAY);
     } else {
       console.error('Max reconnection attempts reached');
@@ -157,7 +154,6 @@ class StatusPage {
   private handleMessage(message: WebSocketMessage): void {
     switch (message.event) {
       case 'connected':
-        console.log('Server acknowledged connection');
         break;
 
       case 'pong':
@@ -180,7 +176,7 @@ class StatusPage {
         break;
 
       default:
-        console.log('Unknown event:', message.event, message.data);
+        break;
     }
   }
 
