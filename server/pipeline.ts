@@ -7,7 +7,7 @@
 
 import { writeFile, readFile, mkdir } from 'fs/promises';
 import { join } from 'path';
-import { OpenCodeClient, createOpenCodeClient, Agent } from './opencode';
+import { OpenCodeClient, OpenCodeManager } from './opencode';
 import { db, generateId, transaction } from './db';
 import type { PromptPart } from './opencode';
 
@@ -384,16 +384,10 @@ export async function executePipeline(
   initPipelineStatus(sessionId);
   await writeStatusFile(sessionId, status, finalConfig.workspaceDir);
   
-  const client = createOpenCodeClient();
-  await client.initialize(finalConfig.agentsDir);
+  const { client } = await OpenCodeManager.getOrCreate(finalConfig.workspaceDir);
   
-  const mainAgent = client.getAgent('main');
-  if (!mainAgent) {
-    throw new Error('Main agent not found');
-  }
-  
-  const session = await client.createSession();
-  const opencodeSessionId = session.data.id;
+  const session = await client.createSession({ title: `Pipeline ${sessionId}` });
+  const opencodeSessionId = session.id;
   
   const context: PipelineContext = {
     sessionId,
@@ -403,7 +397,7 @@ export async function executePipeline(
   };
   
   try {
-    const result = await runMainAgentLoop(client, opencodeSessionId, mainAgent, context, status, finalConfig);
+    const result = await runMainAgentLoop(client, opencodeSessionId, context, status, finalConfig);
     updatePipelineStatus(sessionId, 'completed');
     return result;
   } catch (error) {
@@ -423,7 +417,6 @@ export async function executePipeline(
 async function runMainAgentLoop(
   client: OpenCodeClient,
   opencodeSessionId: string,
-  mainAgent: Agent,
   context: PipelineContext,
   status: PipelineStatus,
   config: PipelineConfig
@@ -443,7 +436,7 @@ async function runMainAgentLoop(
     await writeStatusFile(context.sessionId, currentStatus, config.workspaceDir);
     
     try {
-      const promptParts = buildPrompt(mainAgent, context);
+      const promptParts = buildPrompt(context);
       
       const response = await sendPromptWithRetry(
         client,
@@ -537,7 +530,7 @@ async function sendPromptWithRetry(
   config: PipelineConfig
 ): Promise<AgentResponse> {
   try {
-    await client.prompt({ sessionId, parts });
+    await client.sendMessage(sessionId, parts);
     
     const response = await pollForResponse(client, sessionId);
     
@@ -564,20 +557,22 @@ async function pollForResponse(
   for (let i = 0; i < maxAttempts; i++) {
     const messages = await client.getMessages(sessionId);
     
-    const lastAssistantMessage = [...messages.data]
+    const lastAssistantMessage = [...messages]
       .reverse()
       .find(m => m.role === 'assistant');
     
     if (lastAssistantMessage) {
-      try {
-        const content = lastAssistantMessage.content;
-        const parsed = JSON.parse(content);
-        
-        if (parsed.finish && (parsed.finish === 'stop' || parsed.finish === 'continue')) {
-          return parsed as AgentResponse;
+      const textPart = lastAssistantMessage.parts?.find(p => p.type === 'text' && p.text);
+      if (textPart?.text) {
+        try {
+          const parsed = JSON.parse(textPart.text);
+          
+          if (parsed.finish && (parsed.finish === 'stop' || parsed.finish === 'continue')) {
+            return parsed as AgentResponse;
+          }
+        } catch {
+          // Not valid JSON, continue polling
         }
-      } catch {
-        // Not valid JSON, continue polling
       }
     }
     
@@ -590,25 +585,35 @@ async function pollForResponse(
 /**
  * Build prompt parts for Main Agent
  */
-function buildPrompt(agent: Agent, context: PipelineContext): PromptPart[] {
+function buildPrompt(context: PipelineContext): PromptPart[] {
   const parts: PromptPart[] = [];
-  
+
   parts.push({
     type: 'text',
-    text: agent.content,
+    text: `You are the AICoder Main Agent orchestrating a 7-stage development pipeline.
+
+## Current Context
+
+Session ID: ${context.sessionId}
+Current Stage: ${context.currentStage}
+User Input: ${context.userInput}
+
+## Pipeline Stages
+1. clarify - Clarify requirements
+2. design - Design architecture
+3. task - Break down tasks
+4. dev - Implement code
+5. test - Write tests
+6. review - Review code
+7. validate - Final validation`,
   });
-  
-  parts.push({
-    type: 'text',
-    text: `\n\n## Current Context\n\nSession ID: ${context.sessionId}\nCurrent Stage: ${context.currentStage}\nUser Input: ${context.userInput}\n`,
-  });
-  
+
   if (Object.keys(context.stageOutputs).length > 0) {
     parts.push({
       type: 'text',
       text: '\n\n## Previous Stage Outputs\n\n',
     });
-    
+
     for (const [stage, output] of Object.entries(context.stageOutputs)) {
       parts.push({
         type: 'text',
@@ -616,12 +621,12 @@ function buildPrompt(agent: Agent, context: PipelineContext): PromptPart[] {
       });
     }
   }
-  
+
   parts.push({
     type: 'text',
     text: `\n\n## Output Format\n\nRespond with a JSON object containing:\n- \`finish\`: "stop" if stage is complete, "continue" if you need to continue\n- \`output\`: The structured output for this stage\n- \`error\`: (optional) Error message if something went wrong\n\nUse the appropriate schema for the current stage (${context.currentStage}).\n`,
   });
-  
+
   return parts;
 }
 

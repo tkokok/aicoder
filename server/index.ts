@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { registerRoutes } from './routes';
 import websocketPlugin from './websocket';
-import { createOpenCodeClient } from './opencode';
+import { OpenCodeManager } from './opencode';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -10,8 +10,6 @@ const fastify = Fastify({
     level: 'info',
   },
 });
-
-const opencodeClient = createOpenCodeClient();
 
 fastify.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
   fastify.log.error({ err: error }, 'Request error');
@@ -35,9 +33,7 @@ async function start() {
       prefix: '/',
     });
 
-    await fastify.register(websocketPlugin, {
-      opencodeClient,
-    });
+    await fastify.register(websocketPlugin);
 
     await fastify.register(registerRoutes);
 
@@ -53,6 +49,7 @@ async function start() {
 
     const shutdown = async (signal: string) => {
       fastify.log.info(`Received ${signal}, starting graceful shutdown...`);
+      OpenCodeManager.shutdownAll();
       try {
         await fastify.close();
         fastify.log.info('Server closed successfully');

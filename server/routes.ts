@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db, transaction, generateId } from './db';
 import { validateSessionInput, SessionInput } from './validation';
-import { createOpenCodeClient } from './opencode';
+import { OpenCodeManager } from './opencode';
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -79,31 +79,42 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const projectName = requireString(input.projectName, 'projectName');
+      request.log.info(`[routes] Creating session for project: ${projectName}`);
+
       let projectPath: string;
-      
+
       try {
         projectPath = await createProjectDirectory(projectName);
+        request.log.info(`[routes] Project directory created: ${projectPath}`);
       } catch (error) {
-        request.log.error({ err: error }, 'Failed to create project directory');
+        request.log.error({ err: error }, '[routes] Failed to create project directory');
         return reply.status(500).send({
           error: 'Failed to create project directory',
         });
       }
 
-      const opencodeClient = createOpenCodeClient({ directory: projectPath });
       let opencodeSessionId: string;
 
       try {
-        const opencodeSession = await opencodeClient.createSession();
-        opencodeSessionId = opencodeSession.data.id;
+        request.log.info(`[routes] Getting/creating OpenCode process for: ${projectPath}`);
+        const { client, process: ocProcess } = await OpenCodeManager.getOrCreate(projectPath);
+        request.log.info(`[routes] OpenCode process ready at ${ocProcess.url}`);
+
+        request.log.info(`[routes] Creating OpenCode session with title: ${projectName}`);
+        const opencodeSession = await client.createSession({
+          title: projectName,
+        });
+        opencodeSessionId = opencodeSession.id;
+        request.log.info(`[routes] OpenCode session created: ${opencodeSessionId}`);
       } catch (error) {
-        request.log.error({ err: error }, 'Failed to create OpenCode session');
+        request.log.error({ err: error }, '[routes] Failed to create OpenCode session');
         return reply.status(502).send({
           error: 'Failed to create session with OpenCode',
         });
       }
 
       const sessionId = generateId();
+      request.log.info(`[routes] AICoder session created: ${sessionId} (opencode: ${opencodeSessionId})`);
 
       try {
         transaction(() => {

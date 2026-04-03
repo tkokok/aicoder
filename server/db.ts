@@ -5,10 +5,8 @@ const DB_PATH = './aicoder.db';
 
 export const db = new Database(DB_PATH);
 
-// Enable foreign keys
 db.exec('PRAGMA foreign_keys = ON');
 
-// Create tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -37,12 +35,27 @@ db.exec(`
   );
 `);
 
-// Transaction wrapper for all write operations
+function runMigrations() {
+  const migrations: Array<[string, string, string]> = [
+    ['sessions', 'project_path', 'TEXT'],
+    ['sessions', 'opencode_session_id', 'TEXT'],
+  ];
+
+  for (const [table, column, type] of migrations) {
+    const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    const existing = rows.map(r => r.name);
+    if (!existing.includes(column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    }
+  }
+}
+
+runMigrations();
+
 export function transaction<T>(fn: () => T): T {
   return db.transaction(fn)();
 }
 
-// Helper to generate UUID
 export function generateId(): string {
   return randomUUID();
 }

@@ -1,234 +1,215 @@
 /**
- * OpenCode SDK Client
- * 
- * HTTP API client for integrating with OpenCode server.
- * Provides session management, agent registration, and event subscription.
+ * OpenCode Process Manager + HTTP Client
+ *
+ * Manages OpenCode server subprocesses and provides HTTP API client.
+ * Each project gets its own OpenCode process on a random port (20000-30000).
  */
-
-import { readFile, readdir } from 'fs/promises';
-import { join } from 'path';
-import { EventSource } from 'eventsource';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export interface OpenCodeConfig {
-  baseUrl: string;
-  directory?: string;
-  timeout?: number;
-}
-
-export interface AgentFrontmatter {
-  description?: string;
-  mode: 'primary' | 'subagent';
-  model?: string;
-}
-
-export interface Agent {
-  name: string;
-  path: string;
-  frontmatter: AgentFrontmatter;
-  content: string;
-}
-
-export interface Session {
+export interface SessionInfo {
   id: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'aborted';
-  createdAt: number;
-  completedAt?: number;
+  title: string;
+  directory: string;
+  time: { created: number; updated: number };
 }
 
-export interface Message {
+export interface MessagePart {
+  type: string;
+  text?: string;
+}
+
+export interface MessageInfo {
   id: string;
-  sessionId: string;
+  sessionID: string;
   role: 'user' | 'assistant';
-  content: string;
-  createdAt: number;
+  parts: MessagePart[];
+  time: { created: number };
 }
 
-export interface PromptOptions {
-  sessionId: string;
-  parts: PromptPart[];
-}
-
-export type PromptPart = 
-  | { type: 'text'; text: string }
-  | { type: 'file'; url: string; mime?: string };
-
-export interface EventSubscription {
+export interface SSEEvent {
   type: string;
   properties: Record<string, unknown>;
 }
 
-export interface OpenCodeError extends Error {
-  code: string;
-  statusCode?: number;
-  isRetryable: boolean;
-}
+export type PromptPart =
+  | { type: 'text'; text: string }
+  | { type: 'file'; url: string; mime?: string; filename?: string };
 
 // ============================================================================
-// Error Handling
+// Logger
 // ============================================================================
 
-function createOpenCodeError(message: string, statusCode?: number): OpenCodeError {
-  const error = new Error(message) as OpenCodeError;
-  error.code = statusCode ? `HTTP_${statusCode}` : 'UNKNOWN';
-  error.statusCode = statusCode;
-  error.isRetryable = statusCode ? statusCode >= 500 || statusCode === 429 : false;
-  return error;
-}
+const log = {
+  info: (component: string, msg: string, data?: unknown) => {
+    const ts = new Date().toISOString();
+    if (data !== undefined) {
+      console.log(`[${ts}] [opencode:${component}] ${msg}`, typeof data === 'object' ? JSON.stringify(data) : data);
+    } else {
+      console.log(`[${ts}] [opencode:${component}] ${msg}`);
+    }
+  },
+  error: (component: string, msg: string, data?: unknown) => {
+    const ts = new Date().toISOString();
+    if (data !== undefined) {
+      console.error(`[${ts}] [opencode:${component}] ERROR: ${msg}`, typeof data === 'object' ? JSON.stringify(data) : data);
+    } else {
+      console.error(`[${ts}] [opencode:${component}] ERROR: ${msg}`);
+    }
+  },
+};
 
 // ============================================================================
-// Agent Parser
+// Port Allocation
 // ============================================================================
 
-export function parseFrontmatter(content: string): { frontmatter: AgentFrontmatter; body: string } {
-  const frontmatterRegex = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/;
-  const match = content.match(frontmatterRegex);
-  
-  if (!match) {
-    return { frontmatter: { mode: 'subagent' }, body: content };
-  }
-  
-  const frontmatterStr = match[1];
-  const body = match[2];
-  
-  // Parse simple YAML key-value pairs
-  const frontmatter: Record<string, string> = {};
-  const lines = frontmatterStr.split('\n');
-  
-  for (const line of lines) {
-    const colonIndex = line.indexOf(':');
-    if (colonIndex > 0) {
-      const key = line.slice(0, colonIndex).trim();
-      const value = line.slice(colonIndex + 1).trim();
-      frontmatter[key] = value;
+const PORT_MIN = 20000;
+const PORT_MAX = 30000;
+const usedPorts = new Set<number>();
+
+function allocatePort(): number {
+  const maxAttempts = 100;
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = PORT_MIN + Math.floor(Math.random() * (PORT_MAX - PORT_MIN));
+    if (!usedPorts.has(port)) {
+      usedPorts.add(port);
+      return port;
     }
   }
-  
-  return {
-    frontmatter: {
-      description: frontmatter.description,
-      mode: (frontmatter.mode as 'primary' | 'subagent') || 'subagent',
-      model: frontmatter.model,
-    },
-    body,
-  };
+  throw new Error('Failed to allocate a free port in range 20000-30000');
 }
 
-/**
- * Load all agent definitions from the agents directory
- */
-export async function loadAgents(agentsDir: string): Promise<Agent[]> {
-  const agents: Agent[] = [];
-  
-  try {
-    const files = await readdir(agentsDir);
-    const mdFiles = files.filter(f => f.endsWith('.md'));
-    
-    for (const file of mdFiles) {
-      const filePath = join(agentsDir, file);
-      const content = await readFile(filePath, 'utf-8');
-      const { frontmatter, body } = parseFrontmatter(content);
-      
-      const agentName = file.replace('.md', '');
-      
-      agents.push({
-        name: agentName,
-        path: filePath,
-        frontmatter,
-        content: body,
-      });
-    }
-  } catch (error) {
-    // Directory doesn't exist or other error - return empty array
-    console.warn(`Failed to load agents from ${agentsDir}:`, error);
-  }
-  
-  return agents;
+function releasePort(port: number): void {
+  usedPorts.delete(port);
 }
 
 // ============================================================================
-// HTTP Client
+// OpenCode Process
 // ============================================================================
 
-class HttpClient {
-  private baseUrl: string;
-  private directory?: string;
-  private timeout: number;
-  
-  constructor(config: OpenCodeConfig) {
-    this.baseUrl = config.baseUrl.replace(/\/$/, '');
-    this.directory = config.directory;
-    this.timeout = config.timeout || 30000;
+class OpenCodeProcess {
+  private process: ReturnType<typeof Bun.spawn> | null = null;
+  private port: number;
+  private hostname = '127.0.0.1';
+  private projectDir: string;
+  private ready: Promise<void>;
+  private readyResolve!: () => void;
+  private readyReject!: (error: Error) => void;
+
+  constructor(projectDir: string) {
+    this.projectDir = projectDir;
+    this.port = allocatePort();
+    this.ready = new Promise((resolve, reject) => {
+      this.readyResolve = resolve;
+      this.readyReject = reject;
+    });
+    log.info('process', `Allocated port ${this.port} for project: ${projectDir}`);
+    this.spawn();
   }
-  
-  private async request<T>(
-    method: string,
-    path: string,
-    body?: unknown
-  ): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    
-    if (this.directory) {
-      headers['x-opencode-directory'] = encodeURIComponent(this.directory);
+
+  private spawn(): void {
+    const binaryPath = process.env.OPENCODE_BIN_PATH || `${process.env.HOME}/.opencode/bin/opencode`;
+    const args = [
+      binaryPath,
+      'serve',
+      '--port', String(this.port),
+      '--hostname', this.hostname,
+    ];
+    log.info('process', `Spawning: ${args.join(' ')}`);
+    log.info('process', `Working directory: ${this.projectDir}`);
+
+    this.process = Bun.spawn(args, {
+      cwd: this.projectDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    log.info('process', `Subprocess PID: ${this.process.pid}`);
+
+    const stdout = this.process.stdout;
+    if (!stdout || typeof stdout === 'number') {
+      releasePort(this.port);
+      this.readyReject(new Error('stdout is not a readable stream'));
+      return;
     }
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-    
-    try {
-      const response = await fetch(url, {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw createOpenCodeError(
-          `OpenCode API error: ${response.status} ${response.statusText} - ${errorText}`,
-          response.status
-        );
-      }
-      
-      return await response.json();
-    } catch (error) {
-      clearTimeout(timeoutId);
-      
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') {
-          throw createOpenCodeError('Request timeout', 408);
+    const reader = stdout.getReader();
+
+    // Also log stderr
+    const stderr = this.process.stderr;
+    if (stderr && typeof stderr !== 'number') {
+      const stderrReader = stderr.getReader();
+      const readStderr = async () => {
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await stderrReader.read();
+          if (done) break;
+          const text = decoder.decode(value);
+          log.error('process:stderr', text.trim());
         }
-        throw error;
-      }
-      
-      throw createOpenCodeError('Unknown error');
+      };
+      readStderr().catch(() => {});
     }
+
+    const readOutput = async () => {
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          log.error('process', `stdout stream ended (process may have exited)`);
+          break;
+        }
+
+        const text = decoder.decode(value);
+        log.info('process:stdout', text.trim());
+
+        const match = text.match(/opencode server listening on http:\/\/([^:]+):(\d+)/);
+        if (match) {
+          log.info('process', `✓ OpenCode server ready at http://${match[1]}:${match[2]}`);
+          this.readyResolve();
+          return;
+        }
+      }
+    };
+
+    readOutput().catch((error) => {
+      log.error('process', `Failed to read stdout: ${error}`);
+      this.readyReject(new Error(`Failed to read stdout: ${error}`));
+    });
+
+    const timeout = setTimeout(() => {
+      log.error('process', `Timeout (5s) waiting for server on port ${this.port}`);
+      this.close();
+      this.readyReject(new Error(`Timeout waiting for OpenCode server to start on port ${this.port}`));
+    }, 5000);
+
+    this.ready.then(() => {
+      clearTimeout(timeout);
+    }).catch(() => {
+      clearTimeout(timeout);
+    });
   }
-  
-  async get<T>(path: string): Promise<T> {
-    return this.request<T>('GET', path);
+
+  async waitForReady(): Promise<void> {
+    return this.ready;
   }
-  
-  async post<T>(path: string, body?: unknown): Promise<T> {
-    return this.request<T>('POST', path, body);
+
+  get url(): string {
+    return `http://${this.hostname}:${this.port}`;
   }
-  
-  async delete<T>(path: string): Promise<T> {
-    return this.request<T>('DELETE', path);
+
+  get pid(): number | undefined {
+    return this.process?.pid;
   }
-  
-  async patch<T>(path: string, body?: unknown): Promise<T> {
-    return this.request<T>('PATCH', path, body);
+
+  close(): void {
+    releasePort(this.port);
+    if (this.process) {
+      log.info('process', `Killing OpenCode process (PID: ${this.process.pid}, port: ${this.port})`);
+      this.process.kill();
+      this.process = null;
+    }
   }
 }
 
@@ -237,220 +218,250 @@ class HttpClient {
 // ============================================================================
 
 export class OpenCodeClient {
-  private http: HttpClient;
-  private config: OpenCodeConfig;
-  private agents: Agent[] = [];
-  
-  constructor(config: OpenCodeConfig) {
-    this.config = config;
-    this.http = new HttpClient(config);
+  private baseUrl: string;
+  private directory: string;
+
+  constructor(opts: { baseUrl: string; directory: string }) {
+    this.baseUrl = opts.baseUrl.replace(/\/$/, '');
+    this.directory = opts.directory;
+    log.info('client', `Created client → ${this.baseUrl}, dir=${this.directory}`);
   }
-  
-  /**
-   * Initialize the client and load agents
-   */
-  async initialize(agentsDir?: string): Promise<void> {
-    const dir = agentsDir || join(process.cwd(), 'agents');
-    this.agents = await loadAgents(dir);
-  }
-  
-  /**
-   * Get all loaded agents
-   */
-  getAgents(): Agent[] {
-    return this.agents;
-  }
-  
-  /**
-   * Get agent by name
-   */
-  getAgent(name: string): Agent | undefined {
-    return this.agents.find(a => a.name === name);
-  }
-  
-  // ===========================================================================
-  // Session Management
-  // ===========================================================================
-  
-  /**
-   * Create a new session
-   */
-  async createSession(): Promise<{ data: Session }> {
-    const response = await this.http.post<{ data: { id: string } }>('/session', {});
-    return {
-      data: {
-        id: response.data.id,
-        status: 'pending',
-        createdAt: Date.now(),
-      },
+
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown
+  ): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-opencode-directory': this.directory,
     };
-  }
-  
-  /**
-   * Get session by ID
-   */
-  async getSession(sessionId: string): Promise<{ data: Session }> {
-    const response = await this.http.get<{ data: { id: string; status?: string } }>(`/session/${sessionId}`);
-    return {
-      data: {
-        id: response.data.id,
-        status: (response.data.status as Session['status']) || 'pending',
-        createdAt: Date.now(),
-      },
-    };
-  }
-  
-  /**
-   * List all sessions
-   */
-  async listSessions(): Promise<{ data: Session[] }> {
-    const response = await this.http.get<{ data: Array<{ id: string; status?: string }> }>('/session');
-    return {
-      data: response.data.map(s => ({
-        id: s.id,
-        status: (s.status as Session['status']) || 'pending',
-        createdAt: Date.now(),
-      })),
-    };
-  }
-  
-  /**
-   * Delete a session
-   */
-  async deleteSession(sessionId: string): Promise<void> {
-    await this.http.delete(`/session/${sessionId}`);
-  }
-  
-  // ===========================================================================
-  // Messaging
-  // ===========================================================================
-  
-  /**
-   * Send a prompt to a session
-   */
-  async prompt(options: PromptOptions): Promise<{ data: { id: string } }> {
-    const response = await this.http.post<{ data: { id: string } }>(
-      `/session/${options.sessionId}/message`,
-      {
-        parts: options.parts,
-      }
-    );
-    return response;
-  }
-  
-  /**
-   * Send a prompt asynchronously (returns immediately)
-   */
-  async promptAsync(options: PromptOptions): Promise<{ data: { id: string } }> {
-    const response = await this.http.post<{ data: { id: string } }>(
-      `/session/${options.sessionId}/prompt_async`,
-      {
-        parts: options.parts,
-      }
-    );
-    return response;
-  }
-  
-  /**
-   * Get messages for a session
-   */
-  async getMessages(sessionId: string): Promise<{ data: Message[] }> {
-    const response = await this.http.get<{ data: Array<{
-      id: string;
-      sessionID: string;
-      role: 'user' | 'assistant';
-      time: { created: number };
-    }> }>(`/session/${sessionId}/message`);
-    
-    return {
-      data: response.data.map(m => ({
-        id: m.id,
-        sessionId: m.sessionID,
-        role: m.role,
-        content: '', // Content needs to be fetched separately or from parts
-        createdAt: m.time.created,
-      })),
-    };
-  }
-  
-  // ===========================================================================
-  // Events
-  // ===========================================================================
-  
-  /**
-   * Subscribe to events via Server-Sent Events (SSE)
-   */
-  subscribeEvents(onEvent: (event: EventSubscription) => void): () => void {
-    const url = new URL(`${this.config.baseUrl}/event`);
-    
-    if (this.config.directory) {
-      url.searchParams.set('directory', this.config.directory);
+
+    log.info('client', `→ ${method} ${url}`);
+    if (body) {
+      log.info('client', `  body: ${JSON.stringify(body).slice(0, 500)}`);
     }
-    
-    const eventSource = new EventSource(url.toString());
-    
-    eventSource.onmessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        onEvent(data);
-      } catch {
-        console.warn('Failed to parse event data:', event.data);
-      }
-    };
-    
-    eventSource.onerror = (error: Event) => {
-      console.error('EventSource error:', error);
-    };
-    
-    // Return unsubscribe function
-    return () => {
-      eventSource.close();
-    };
+
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    log.info('client', `← ${response.status} ${response.statusText} ${method} ${path}`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      log.error('client', `  response body: ${errorText.slice(0, 500)}`);
+      throw new Error(`OpenCode API error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    // Handle 204 No Content
+    if (response.status === 204) {
+      log.info('client', `  (204 No Content)`);
+      return undefined as T;
+    }
+
+    const json = await response.json();
+    log.info('client', `  response: ${JSON.stringify(json).slice(0, 500)}`);
+    return json;
   }
-  
-  // ===========================================================================
-  // Health Check
-  // ===========================================================================
-  
-  /**
-   * Check if OpenCode server is available
-   */
+
   async isAvailable(): Promise<boolean> {
     try {
-      await this.http.get('/config');
-      return true;
-    } catch {
+      const url = `${this.baseUrl}/global/health`;
+      log.info('client', `Health check → GET ${url}`);
+      const response = await fetch(url, {
+        headers: { 'x-opencode-directory': this.directory },
+      });
+      const ok = response.status === 200;
+      log.info('client', `Health check result: ${ok} (${response.status})`);
+      return ok;
+    } catch (error) {
+      log.error('client', `Health check failed: ${error}`);
       return false;
     }
   }
-  
-  /**
-   * Get server configuration
-   */
-  async getConfig(): Promise<Record<string, unknown>> {
-    return this.http.get('/config');
+
+  async createSession(opts?: { title?: string }): Promise<SessionInfo> {
+    const body = opts?.title ? { title: opts.title } : {};
+    log.info('client', `Creating session with title: ${opts?.title || '(default)'}`);
+    const session = await this.request<SessionInfo>('POST', '/session', body);
+    log.info('client', `Session created: id=${session.id}, title=${session.title}`);
+    return session;
+  }
+
+  async getSession(sessionId: string): Promise<SessionInfo> {
+    log.info('client', `Getting session: ${sessionId}`);
+    return this.request<SessionInfo>('GET', `/session/${sessionId}`);
+  }
+
+  async sendMessage(
+    sessionId: string,
+    parts: PromptPart[],
+    opts?: { agent?: string }
+  ): Promise<void> {
+    const body: { parts: PromptPart[]; agent?: string } = { parts };
+    if (opts?.agent) {
+      body.agent = opts.agent;
+    }
+    const textParts = parts.filter(p => p.type === 'text').map(p => (p as { type: 'text'; text: string }).text.slice(0, 100));
+    log.info('client', `Sending message to session ${sessionId}, agent=${opts?.agent || 'default'}`);
+    log.info('client', `  parts preview: ${JSON.stringify(textParts)}`);
+    await this.request<void>('POST', `/session/${sessionId}/prompt_async`, body);
+    log.info('client', `Message sent (async, fire-and-forget)`);
+  }
+
+  async getMessages(sessionId: string): Promise<MessageInfo[]> {
+    log.info('client', `Fetching messages for session ${sessionId}`);
+    const messages = await this.request<MessageInfo[]>('GET', `/session/${sessionId}/message`);
+    log.info('client', `Got ${messages.length} messages`);
+    return messages;
+  }
+
+  subscribeEvents(onEvent: (event: SSEEvent) => void): () => void {
+    let aborted = false;
+    const url = `${this.baseUrl}/event`;
+
+    log.info('sse', `Connecting to SSE: ${url}`);
+
+    const connect = async () => {
+      try {
+        const response = await fetch(url, {
+          headers: { 'x-opencode-directory': this.directory },
+        });
+
+        if (!response.ok) {
+          log.error('sse', `Connection failed: ${response.status}`);
+          throw new Error(`SSE connection failed: ${response.status}`);
+        }
+
+        log.info('sse', `Connected, reading stream...`);
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('No response body');
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (!aborted) {
+          const { done, value } = await reader.read();
+          if (done) {
+            log.info('sse', `Stream ended`);
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let eventType = '';
+          let eventData = '';
+
+          for (const line of lines) {
+            if (line.startsWith('event:')) {
+              eventType = line.slice(6).trim();
+            } else if (line.startsWith('data:')) {
+              eventData = line.slice(5).trim();
+            } else if (line === '' && eventData) {
+              try {
+                const data = JSON.parse(eventData);
+                if (data.type !== 'heartbeat' && data.type !== 'server.heartbeat') {
+                  log.info('sse', `Event: ${data.type}`);
+                  onEvent(data);
+                }
+              } catch {
+                // Ignore parse errors
+              }
+              eventType = '';
+              eventData = '';
+            }
+          }
+        }
+      } catch (error) {
+        if (!aborted) {
+          log.error('sse', `Connection error: ${error}`);
+        }
+      }
+    };
+
+    connect();
+
+    return () => {
+      log.info('sse', `Unsubscribing`);
+      aborted = true;
+    };
   }
 }
 
 // ============================================================================
-// Factory Function
+// OpenCode Manager
 // ============================================================================
 
-/**
- * Create an OpenCode client instance
- */
-export function createOpenCodeClient(config?: Partial<OpenCodeConfig>): OpenCodeClient {
-  const defaultConfig: OpenCodeConfig = {
-    baseUrl: process.env.OPENCODE_URL || 'http://localhost:8080',
-    directory: process.env.OPENCODE_DIRECTORY || process.cwd(),
-    timeout: 30000,
-  };
-  
-  return new OpenCodeClient({ ...defaultConfig, ...config });
+class OpenCodeManagerImpl {
+  private processes: Map<string, OpenCodeProcess> = new Map();
+  private clients: Map<string, OpenCodeClient> = new Map();
+
+  async getOrCreate(projectDir: string): Promise<{
+    process: OpenCodeProcess;
+    client: OpenCodeClient;
+  }> {
+    const existingProcess = this.processes.get(projectDir);
+    if (existingProcess) {
+      const existingClient = this.clients.get(projectDir);
+      if (existingClient) {
+        log.info('manager', `Reusing existing process for: ${projectDir} (url=${existingProcess.url})`);
+        return { process: existingProcess, client: existingClient };
+      }
+    }
+
+    log.info('manager', `No existing process for: ${projectDir}`);
+    log.info('manager', `Active processes: ${this.processes.size}`);
+
+    const newProcess = new OpenCodeProcess(projectDir);
+    log.info('manager', `Waiting for process to be ready...`);
+    await newProcess.waitForReady();
+    log.info('manager', `Process ready at ${newProcess.url}`);
+
+    const client = new OpenCodeClient({
+      baseUrl: newProcess.url,
+      directory: projectDir,
+    });
+
+    this.processes.set(projectDir, newProcess);
+    this.clients.set(projectDir, client);
+
+    log.info('manager', `Process registered. Total active: ${this.processes.size}`);
+    return { process: newProcess, client };
+  }
+
+  shutdown(projectDir: string): void {
+    const process = this.processes.get(projectDir);
+    if (process) {
+      log.info('manager', `Shutting down process for: ${projectDir}`);
+      process.close();
+      this.processes.delete(projectDir);
+      this.clients.delete(projectDir);
+    } else {
+      log.info('manager', `No process found for: ${projectDir}`);
+    }
+  }
+
+  shutdownAll(): void {
+    log.info('manager', `Shutting down all ${this.processes.size} processes`);
+    for (const [dir, process] of this.processes.entries()) {
+      log.info('manager', `  Stopping: ${dir}`);
+      process.close();
+    }
+    this.processes.clear();
+    this.clients.clear();
+    log.info('manager', `All processes stopped`);
+  }
 }
 
-// ============================================================================
-// Default Export
-// ============================================================================
-
-export default OpenCodeClient;
+export const OpenCodeManager = new OpenCodeManagerImpl();

@@ -1,23 +1,19 @@
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import fp from 'fastify-plugin';
 import websocket, { WebSocket } from '@fastify/websocket';
-import { OpenCodeClient, EventSubscription } from './opencode.js';
+import type { SSEEvent } from './opencode.js';
 
 export interface WebSocketMessage {
   event: string;
   data: Record<string, unknown>;
 }
 
-export interface WebSocketHandlerOptions extends FastifyPluginOptions {
-  opencodeClient: OpenCodeClient;
-}
+export interface WebSocketHandlerOptions extends FastifyPluginOptions {}
 
 async function websocketPlugin(
   fastify: FastifyInstance,
-  options: WebSocketHandlerOptions
+  _options: WebSocketHandlerOptions
 ): Promise<void> {
-  const { opencodeClient } = options;
-
   const clients = new Set<WebSocket>();
 
   await fastify.register(websocket);
@@ -53,7 +49,8 @@ async function websocketPlugin(
     });
   });
 
-  const unsubscribe = opencodeClient.subscribeEvents((event: EventSubscription) => {
+  // Broadcast an SSE event to all connected WebSocket clients
+  fastify.decorate('broadcastEvent', (event: SSEEvent) => {
     const payload = JSON.stringify({
       event: event.type || 'progress',
       data: event.properties || {},
@@ -68,7 +65,6 @@ async function websocketPlugin(
 
   fastify.addHook('preClose', async () => {
     fastify.log.info('Cleaning up WebSocket connections...');
-    unsubscribe();
     for (const client of clients) {
       try {
         client.close(1001, 'Server shutting down');
