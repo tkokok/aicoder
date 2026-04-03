@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AICoder - Pipeline Status</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page">
+    <header class="page-header">
+      <div class="container">
+        <h1 class="page-title">Pipeline Status</h1>
+        <p class="page-subtitle">Real-time progress tracking</p>
+      </div>
+    </header>
+
+    <main class="page-content">
+      <div class="container">
+        <div class="card mb-6">
+          <div class="card-header">
+            <h2 class="card-title">Session Information</h2>
+          </div>
+          <div class="card-body">
+            <div class="mb-4">
+              <span class="badge" id="session-status">Connecting...</span>
+            </div>
+            <div class="font-mono" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
+              Session ID: <span id="session-id">-</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-6">
+          <div class="card-header">
+            <h2 class="card-title">Overall Progress</h2>
+          </div>
+          <div class="card-body">
+            <div class="progress-container">
+              <div class="progress-label">
+                <span id="progress-stage">Initializing...</span>
+                <span id="progress-percent">0%</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Pipeline Stages</h2>
+          </div>
+          <div class="card-body">
+            <div class="stage-timeline" id="stage-timeline">
+              <div class="stage-item" data-stage="clarify">
+                <div class="stage-indicator pending">1</div>
+                <div class="stage-content">
+                  <h3 class="stage-name">Clarify</h3>
+                  <p class="stage-status">Waiting to start</p>
+                </div>
+              </div>
+
+              <div class="stage-item" data-stage="design">
+                <div class="stage-indicator pending">2</div>
+                <div class="stage-content">
+                  <h3 class="stage-name">Design</h3>
+                  <p class="stage-status">Waiting to start</p>
+                </div>
+              </div>
+
+              <div class="stage-item" data-stage="task">
+                <div class="stage-indicator pending">3</div>
+                <div class="stage-content">
+                  <h3 class="stage-name">Task</h3>
+                  <p class="stage-status">Waiting to start</p>
+                </div>
+              </div>
+
+              <div class="stage-item" data-stage="dev">
+                <div class="stage-indicator pending">4</div>
+                <div class="stage-content">
+                  <h3 class="stage-name">Development</h3>
+                  <p class="stage-status">Waiting to start</p>
+                </div>
+              </div>
+
+              <div class="stage-item" data-stage="test">
+                <div class="stage-indicator pending">5</div>
+                <div class="stage-content">
+                  <h3 class="stage-name">Test</h3>
+                  <p class="stage-status">Waiting to start</p>
+                </div>
+              </div>
+
+              <div class="stage-item" data-stage="review">
+                <div class="stage-indicator pending">6</div>
+                <div class="stage-content">
+                  <h3 class="stage-name">Review</h3>
+                  <p class="stage-status">Waiting to start</p>
+                </div>
+              </div>
+
+              <div class="stage-item" data-stage="validate">
+                <div class="stage-indicator pending">7</div>
+                <div class="stage-content">
+                  <h3 class="stage-name">Validate</h3>
+                  <p class="stage-status">Waiting to start</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mt-6 hidden" id="error-card">
+          <div class="card-header" style="border-bottom-color: var(--color-error-500);">
+            <h2 class="card-title" style="color: var(--color-error-600);">Error</h2>
+          </div>
+          <div class="card-body">
+            <p id="error-message" style="color: var(--color-error-600);"></p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="status.js"></script>
+</body>
+</html>

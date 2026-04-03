@@ -1,0 +1,194 @@
+interface SessionMetadata {
+  id: string;
+  status: string;
+  projectName?: string;
+  createdAt?: number;
+  completedAt?: number;
+}
+
+interface ReportResponse {
+  markdown?: string;
+  status?: string;
+  error?: string;
+}
+
+interface ErrorResponse {
+  error: string;
+}
+
+declare const marked: {
+  parse(text: string, options?: { breaks?: boolean; gfm?: boolean }): string;
+};
+
+const API_BASE = '/api';
+
+function getSessionIdFromUrl(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('id');
+}
+
+function formatDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function escapeHtml(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function renderMetadata(metadata: SessionMetadata): void {
+  const container = document.getElementById('metadata');
+  if (!container) return;
+
+  const statusClass = metadata.status === 'completed' 
+    ? 'status-dot--completed' 
+    : metadata.status === 'error' 
+      ? 'status-dot--error' 
+      : '';
+
+  const items = [
+    { label: 'Session ID', value: metadata.id },
+    { label: 'Status', value: metadata.status, isStatus: true },
+    { label: 'Project', value: metadata.projectName || 'Unknown' },
+    { label: 'Created', value: metadata.createdAt ? formatDate(metadata.createdAt) : 'N/A' },
+  ];
+
+  if (metadata.completedAt) {
+    items.push({ label: 'Completed', value: formatDate(metadata.completedAt) });
+  }
+
+  container.innerHTML = items.map(item => `
+    <div class="metadata__item">
+      <div class="metadata__label">${item.label}</div>
+      <div class="metadata__value${item.isStatus ? ' metadata__value--status' : ''}">
+        ${item.isStatus ? `<span class="status-dot ${statusClass}"></span>` : ''}
+        ${escapeHtml(item.value)}
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderLoading(): void {
+  const container = document.getElementById('content');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="loading">
+      <div class="loading__spinner"></div>
+      <p class="loading__text">Loading report...</p>
+    </div>
+  `;
+}
+
+function renderError(message: string, onRetry?: () => void): void {
+  const container = document.getElementById('content');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="error">
+      <div class="error__icon">⚠️</div>
+      <h2 class="error__title">Error Loading Report</h2>
+      <p class="error__message">${escapeHtml(message)}</p>
+      ${onRetry ? '<button class="error__retry" id="retry-btn">Try Again</button>' : ''}
+    </div>
+  `;
+
+  if (onRetry) {
+    const retryBtn = document.getElementById('retry-btn');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', onRetry);
+    }
+  }
+}
+
+function renderPending(status: string): void {
+  const container = document.getElementById('content');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="pending">
+      <div class="pending__icon">⏳</div>
+      <h2 class="pending__title">Session ${escapeHtml(status)}</h2>
+      <p class="pending__message">The report will be available once the session completes.</p>
+    </div>
+  `;
+}
+
+function renderMarkdown(markdown: string): void {
+  const container = document.getElementById('content');
+  if (!container) return;
+
+  const parsed = marked.parse(markdown, { breaks: true, gfm: true }) as string;
+  container.innerHTML = `<div class="markdown-body">${parsed}</div>`;
+}
+
+async function fetchSession(sessionId: string): Promise<{ metadata: SessionMetadata; report: ReportResponse | null }> {
+  const metadataResponse = await fetch(`${API_BASE}/sessions/${sessionId}`);
+  
+  if (!metadataResponse.ok) {
+    if (metadataResponse.status === 404) {
+      throw new Error('Session not found');
+    }
+    throw new Error('Failed to fetch session');
+  }
+
+  const sessionData = await metadataResponse.json() as { id: string; status: string };
+  
+  const metadata: SessionMetadata = {
+    id: sessionData.id,
+    status: sessionData.status,
+  };
+
+  let report: ReportResponse | null = null;
+
+  if (sessionData.status === 'completed') {
+    const reportResponse = await fetch(`${API_BASE}/sessions/${sessionId}/report`);
+    
+    if (reportResponse.ok) {
+      report = await reportResponse.json() as ReportResponse;
+    } else {
+      const errorData = await reportResponse.json() as ErrorResponse;
+      throw new Error(errorData.error || 'Failed to fetch report');
+    }
+  }
+
+  return { metadata, report };
+}
+
+async function init(): Promise<void> {
+  const sessionId = getSessionIdFromUrl();
+
+  if (!sessionId) {
+    renderError('No session ID provided. Please include an "id" parameter in the URL.');
+    return;
+  }
+
+  renderLoading();
+
+  try {
+    const { metadata, report } = await fetchSession(sessionId);
+    renderMetadata(metadata);
+
+    if (metadata.status === 'completed' && report?.markdown) {
+      renderMarkdown(report.markdown);
+    } else if (metadata.status === 'pending' || metadata.status === 'running') {
+      renderPending(metadata.status);
+    } else if (metadata.status === 'error') {
+      renderError('Session processing failed. Please check the session logs.');
+    } else {
+      renderPending(metadata.status);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'An unexpected error occurred';
+    renderError(message, () => init());
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);

@@ -19,7 +19,10 @@
     "ses_2abb359d3ffelti4uIIdDOZnId",
     "ses_2abb39445ffevVWrcc7TxtOzmR",
     "ses_2abb36c52ffezWx6TfvhPS4kTG",
-    "ses_2abb37e1cffeG5I8OKBjKS1EKL"
+    "ses_2abb37e1cffeG5I8OKBjKS1EKL",
+    "ses_2abad1490ffeGNPt0bpI3mZtBn",
+    "ses_2abacadccffeOWUMvuV5OUhLH7",
+    "ses_2abad6948ffe5aghMhpRvTJ7DK"
   ],
   "plan_name": "aicoder-mvp",
   "agent": "atlas",
@@ -28,10 +31,10 @@
       "task_key": "todo:1",
       "task_label": "1",
       "task_title": "Define JSON schemas for all agent outputs",
-      "session_id": "ses_2abb39445ffevVWrcc7TxtOzmR",
+      "session_id": "ses_2abad6948ffe5aghMhpRvTJ7DK",
       "agent": "Sisyphus-Junior",
-      "category": "quick",
-      "updated_at": "2026-04-03T17:06:24.551Z"
+      "category": "visual-engineering",
+      "updated_at": "2026-04-03T17:14:42.583Z"
     }
   }
 }
