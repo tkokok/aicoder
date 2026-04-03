@@ -26,6 +26,7 @@ export interface MessageInfo {
   sessionID: string;
   role: 'user' | 'assistant';
   parts: MessagePart[];
+  finish?: string;
   time: { created: number };
 }
 
@@ -37,6 +38,12 @@ export interface SSEEvent {
 export type PromptPart =
   | { type: 'text'; text: string }
   | { type: 'file'; url: string; mime?: string; filename?: string };
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  providerID: string;
+}
 
 // ============================================================================
 // Logger
@@ -301,11 +308,19 @@ export class OpenCodeClient {
   async sendMessage(
     sessionId: string,
     parts: PromptPart[],
-    opts?: { agent?: string }
+    opts?: { agent?: string; model?: string }
   ): Promise<void> {
-    const body: { parts: PromptPart[]; agent?: string } = { parts };
+    const body: { parts: PromptPart[]; agent?: string; model?: { providerID: string; modelID: string } } = { parts };
     if (opts?.agent) {
       body.agent = opts.agent;
+    }
+    if (opts?.model) {
+      const slashIdx = opts.model.indexOf('/');
+      if (slashIdx > 0) {
+        body.model = { providerID: opts.model.slice(0, slashIdx), modelID: opts.model.slice(slashIdx + 1) };
+      } else {
+        body.model = { providerID: opts.model, modelID: opts.model };
+      }
     }
     const textParts = parts.filter(p => p.type === 'text').map(p => (p as { type: 'text'; text: string }).text.slice(0, 100));
     log.info('client', `Sending message to session ${sessionId}, agent=${opts?.agent || 'default'}`);
@@ -316,9 +331,56 @@ export class OpenCodeClient {
 
   async getMessages(sessionId: string): Promise<MessageInfo[]> {
     log.info('client', `Fetching messages for session ${sessionId}`);
-    const messages = await this.request<MessageInfo[]>('GET', `/session/${sessionId}/message`);
-    log.info('client', `Got ${messages.length} messages`);
-    return messages;
+    const raw = await this.request<any[]>('GET', `/session/${sessionId}/message`);
+    log.info('client', `Got ${raw.length} raw messages`);
+    const lastAssistant = raw.filter((m: any) => m.info?.role === 'assistant').slice(-1)[0];
+    if (lastAssistant) {
+      log.info('client', `Last assistant: finish=${lastAssistant.info?.finish}, parts=${lastAssistant.parts?.length}`);
+    }
+
+    const mapped: MessageInfo[] = raw.map((m) => ({
+      id: m.info?.id ?? m.id ?? '',
+      sessionID: m.info?.sessionID ?? m.sessionID ?? '',
+      role: m.info?.role ?? m.role ?? 'user',
+      parts: (m.parts ?? []) as MessagePart[],
+      finish: m.info?.finish ?? undefined,
+      time: m.info?.time ?? m.time ?? { created: 0 },
+    }));
+
+    return mapped;
+  }
+
+  async getModels(): Promise<ModelInfo[]> {
+    log.info('client', `Fetching available models from /provider`);
+    interface ProviderModel {
+      id: string;
+      name?: string;
+    }
+    interface ProviderItem {
+      id: string;
+      name?: string;
+      models: Record<string, ProviderModel>;
+    }
+    interface ProviderResponse {
+      all: ProviderItem[];
+      default: Record<string, string>;
+      connected: string[];
+    }
+    const data = await this.request<ProviderResponse>('GET', '/provider');
+    const connectedSet = new Set(data.connected);
+    const models: ModelInfo[] = [];
+    for (const provider of data.all) {
+      if (!connectedSet.has(provider.id)) continue;
+      for (const [modelID, model] of Object.entries(provider.models)) {
+        models.push({
+          id: `${provider.id}/${modelID}`,
+          name: model.name || modelID,
+          providerID: provider.id,
+        });
+      }
+    }
+    log.info('client', `Found ${models.length} models from ${connectedSet.size} connected providers`);
+    return models;
   }
 
   subscribeEvents(onEvent: (event: SSEEvent) => void): () => void {

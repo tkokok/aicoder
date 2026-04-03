@@ -45,7 +45,7 @@ const STAGE_ORDER: PipelineStage[] = [
   'validate',
 ];
 
-const WS_URL = 'ws://localhost:3000/ws';
+const WS_URL = `ws://${window.location.host}/ws`;
 const RECONNECT_DELAY = 3000;
 const MAX_RECONNECT_ATTEMPTS = 10;
 

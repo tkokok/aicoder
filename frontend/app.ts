@@ -6,6 +6,7 @@ interface ProjectFormData {
   projectName: string;
   requirements: string;
   techStack: string;
+  model?: string;
   devEnv?: string;
   testMethod?: string;
 }
@@ -23,6 +24,48 @@ interface ApiResponse {
 }
 
 const API_ENDPOINT = '/api/sessions';
+const MODELS_ENDPOINT = '/api/models';
+const DEFAULT_MODEL = 'kimi-for-coding/k2p5';
+
+async function fetchModels(): Promise<{ models: Array<{ id: string; name: string }>; default: string }> {
+  try {
+    const response = await fetch(MODELS_ENDPOINT);
+    if (!response.ok) return { models: [], default: DEFAULT_MODEL };
+    return response.json();
+  } catch {
+    return { models: [], default: DEFAULT_MODEL };
+  }
+}
+
+function populateModelSelect(data: { models: Array<{ id: string; name: string }>; default: string }): void {
+  const select = document.getElementById('model') as HTMLSelectElement;
+  if (!select) return;
+
+  select.innerHTML = '';
+
+  if (data.models.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = DEFAULT_MODEL;
+    opt.textContent = DEFAULT_MODEL;
+    select.appendChild(opt);
+    return;
+  }
+
+  for (const model of data.models) {
+    const opt = document.createElement('option');
+    opt.value = model.id;
+    opt.textContent = `${model.name} (${model.id})`;
+    if (model.id === data.default || model.id === DEFAULT_MODEL) {
+      opt.selected = true;
+    }
+    select.appendChild(opt);
+  }
+
+  if (!select.querySelector('option[selected]')) {
+    const first = select.querySelector('option');
+    if (first) first.selected = true;
+  }
+}
 
 function validateProjectName(value: string): string | null {
   const trimmed = value.trim();
@@ -222,6 +265,7 @@ function getFormData(): ProjectFormData {
   const projectName = (document.getElementById('projectName') as HTMLInputElement)?.value || '';
   const requirements = (document.getElementById('requirements') as HTMLTextAreaElement)?.value || '';
   const techStack = (document.getElementById('techStack') as HTMLInputElement)?.value || '';
+  const model = (document.getElementById('model') as HTMLSelectElement)?.value || '';
   const devEnv = (document.getElementById('devEnv') as HTMLInputElement)?.value || '';
   const testMethod = (document.getElementById('testMethod') as HTMLInputElement)?.value || '';
   
@@ -229,6 +273,7 @@ function getFormData(): ProjectFormData {
     projectName,
     requirements,
     techStack,
+    model: model || undefined,
   };
   
   if (devEnv.trim()) {
@@ -268,7 +313,7 @@ async function submitForm(formData: ProjectFormData): Promise<void> {
     }
     
     if (data.id) {
-      window.location.href = `status.html?id=${encodeURIComponent(data.id)}`;
+      window.location.href = `status.html?session=${encodeURIComponent(data.id)}`;
     } else {
       showServerErrors(['Invalid response from server. Missing session ID.']);
       setSubmitButtonLoading(false);
@@ -295,6 +340,10 @@ function handleFormSubmit(event: Event): void {
 }
 
 function initForm(): void {
+  fetchModels().then(populateModelSelect).catch(() => {
+    populateModelSelect({ models: [], default: DEFAULT_MODEL });
+  });
+
   const form = document.getElementById('project-form') as HTMLFormElement;
   
   if (form) {

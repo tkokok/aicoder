@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db, transaction, generateId } from './db';
 import { validateSessionInput, SessionInput } from './validation';
 import { OpenCodeManager } from './opencode';
+import { executePipeline } from './pipeline';
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -12,6 +13,7 @@ interface CreateSessionBody {
   techStack: unknown;
   devEnv?: unknown;
   testMethod?: unknown;
+  model?: unknown;
 }
 
 interface SessionResponse {
@@ -59,6 +61,23 @@ async function createProjectDirectory(projectName: string): Promise<string> {
 }
 
 export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
+  fastify.get('/api/models', async (_request, reply) => {
+    try {
+      const tempDir = join(homedir(), '.aicoder', '.temp-model-fetch');
+      await mkdir(tempDir, { recursive: true });
+      const { client } = await OpenCodeManager.getOrCreate(tempDir);
+      const models = await client.getModels();
+      return reply.send({ models, default: 'kimi-for-coding/k2p5' });
+    } catch (error) {
+      fastify.log.error({ err: error }, 'Failed to fetch models');
+      return reply.status(502).send({
+        models: [],
+        default: 'kimi-for-coding/k2p5',
+        error: 'Failed to fetch models from OpenCode',
+      });
+    }
+  });
+
   fastify.post<{ Body: CreateSessionBody }>(
     '/api/sessions',
     async (request: FastifyRequest<{ Body: CreateSessionBody }>, reply: FastifyReply) => {
@@ -68,6 +87,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         techStack: request.body.techStack,
         devEnv: request.body.devEnv,
         testMethod: request.body.testMethod,
+        model: request.body.model,
       };
 
       const validation = validateSessionInput(input);
@@ -141,6 +161,54 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
           error: 'Failed to create session',
         });
       }
+
+      const model = input.model && typeof input.model === 'string' ? input.model : undefined;
+      const userInput = requireString(input.requirements, 'requirements');
+
+      const { client } = await OpenCodeManager.getOrCreate(projectPath);
+
+      const unsubscribe = client.subscribeEvents((event) => {
+        try {
+          (fastify as any).broadcastEvent(event);
+        } catch {}
+      });
+
+      executePipeline(userInput, {
+        workspaceDir: projectPath,
+        model,
+      }).then((result) => {
+        request.log.info(`[routes] Pipeline completed for session ${sessionId}`);
+        const reportMd = JSON.stringify(result, null, 2);
+        transaction(() => {
+          db.prepare(
+            `UPDATE sessions SET status = 'completed', completed_at = ? WHERE id = ?`
+          ).run(Date.now(), sessionId);
+          db.prepare(
+            `INSERT INTO session_reports (session_id, report_markdown, created_at) VALUES (?, ?, ?)`
+          ).run(sessionId, reportMd, Date.now());
+        });
+        try {
+          (fastify as any).broadcastEvent({
+            type: 'completed',
+            properties: { session_id: sessionId },
+          });
+        } catch {}
+        unsubscribe();
+      }).catch((error) => {
+        request.log.error({ err: error }, `[routes] Pipeline failed for session ${sessionId}`);
+        transaction(() => {
+          db.prepare(
+            `UPDATE sessions SET status = 'failed', completed_at = ? WHERE id = ?`
+          ).run(Date.now(), sessionId);
+        });
+        try {
+          (fastify as any).broadcastEvent({
+            type: 'failed',
+            properties: { session_id: sessionId, error: error instanceof Error ? error.message : String(error) },
+          });
+        } catch {}
+        unsubscribe();
+      });
 
       return reply.status(201).send({
         id: sessionId,

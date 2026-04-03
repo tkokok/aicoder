@@ -118,6 +118,7 @@ export interface SessionInput {
   techStack: unknown;
   devEnv?: unknown;
   testMethod?: unknown;
+  model?: unknown;
 }
 
 /**
