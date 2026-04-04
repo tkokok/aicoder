@@ -1,3 +1,7 @@
+// Bypass HTTP proxy for localhost connections to prevent 503 errors from local proxies (e.g. v2ray)
+process.env.NO_PROXY = 'localhost,127.0.0.1,::1';
+process.env.no_proxy = 'localhost,127.0.0.1,::1';
+
 import Fastify from 'fastify';
 import { registerRoutes } from './routes';
 import websocketPlugin from './websocket';

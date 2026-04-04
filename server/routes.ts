@@ -11,6 +11,16 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
+import type { ModelInfo } from './opencode';
+
+let modelsCache: {
+  models: ModelInfo[];
+  default: string;
+  fetchedAt: number;
+} | null = null;
+
+const MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
+
 interface CreateSessionBody {
   projectName: unknown;
   requirements: unknown;
@@ -178,12 +188,18 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   fastify.get('/api/models', async (_request, reply) => {
+    const now = Date.now();
+    if (modelsCache && now - modelsCache.fetchedAt < MODELS_CACHE_TTL_MS) {
+      return reply.send({ models: modelsCache.models, default: modelsCache.default });
+    }
+
+    const tempDir = join(homedir(), '.aicoder', '.temp-model-fetch');
     try {
-      const tempDir = join(homedir(), '.aicoder', '.temp-model-fetch');
       await mkdir(tempDir, { recursive: true });
       const { client } = await OpenCodeManager.getOrCreate(tempDir);
       const models = await client.getModels();
-      return reply.send({ models, default: 'kimi-for-coding/k2p5' });
+      modelsCache = { models, default: 'kimi-for-coding/k2p5', fetchedAt: Date.now() };
+      return reply.send({ models, default: modelsCache.default });
     } catch (error) {
       fastify.log.error({ err: error }, 'Failed to fetch models');
       return reply.status(502).send({
@@ -191,6 +207,10 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         default: 'kimi-for-coding/k2p5',
         error: 'Failed to fetch models from OpenCode',
       });
+    } finally {
+      if (OpenCodeManager.isManagedProcess(tempDir)) {
+        OpenCodeManager.shutdown(tempDir);
+      }
     }
   });
 
