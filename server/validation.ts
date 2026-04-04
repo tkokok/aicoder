@@ -128,6 +128,7 @@ export interface SessionInput {
   devEnv?: unknown;
   testMethod?: unknown;
   model?: unknown;
+  subagentModel?: unknown;
   mode?: unknown;
   existingPath?: unknown;
   opencodeUrl?: unknown;

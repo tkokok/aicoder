@@ -126,7 +126,7 @@
 
               <div class="form-group">
                 <label for="model" class="form-label">
-                  AI Model
+                  Main Agent Model
                 </label>
                 <select
                   id="model"
@@ -137,7 +137,24 @@
                   <option value="">Loading models...</option>
                 </select>
                 <span id="model-hint" class="form-hint">
-                  AI model to use for code generation
+                  AI model for the main orchestrator (AICoder)
+                </span>
+              </div>
+
+              <div class="form-group">
+                <label for="subagentModel" class="form-label">
+                  Sub-agent Model
+                </label>
+                <select
+                  id="subagentModel"
+                  name="subagentModel"
+                  class="form-input"
+                  aria-describedby="subagentModel-hint"
+                >
+                  <option value="">Loading models...</option>
+                </select>
+                <span id="subagentModel-hint" class="form-hint">
+                  AI model for pipeline sub-agents (clarify, design, dev, test, etc.)
                 </span>
               </div>
 

@@ -48,6 +48,8 @@ function runMigrations() {
     ['sessions', 'opencode_password', 'TEXT'],
     ['sessions', 'workspace_path', 'TEXT'],
     ['sessions', 'repo_name', 'TEXT'],
+    ['session_inputs', 'model', 'TEXT'],
+    ['session_inputs', 'subagent_model', 'TEXT'],
   ];
 
   for (const [table, column, type] of migrations) {

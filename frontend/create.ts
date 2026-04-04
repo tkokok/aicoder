@@ -7,6 +7,7 @@ interface ProjectFormData {
   requirements: string;
   techStack: string;
   model?: string;
+  subagentModel?: string;
   devEnv?: string;
   testMethod?: string;
   mode?: string;
@@ -43,8 +44,8 @@ async function fetchModels(): Promise<{ models: Array<{ id: string; name: string
   }
 }
 
-function populateModelSelect(data: { models: Array<{ id: string; name: string }>; default: string }): void {
-  const select = document.getElementById('model') as HTMLSelectElement;
+function populateModelSelect(data: { models: Array<{ id: string; name: string }>; default: string }, selectId: string): void {
+  const select = document.getElementById(selectId) as HTMLSelectElement;
   if (!select) return;
 
   select.innerHTML = '';
@@ -358,6 +359,7 @@ function getFormData(): ProjectFormData {
   const requirements = (document.getElementById('requirements') as HTMLTextAreaElement)?.value || '';
   const techStack = (document.getElementById('techStack') as HTMLInputElement)?.value || '';
   const model = (document.getElementById('model') as HTMLSelectElement)?.value || '';
+  const subagentModel = (document.getElementById('subagentModel') as HTMLSelectElement)?.value || '';
   const devEnv = (document.getElementById('devEnv') as HTMLInputElement)?.value || '';
   const testMethod = (document.getElementById('testMethod') as HTMLInputElement)?.value || '';
   const opencodeUrl = (document.getElementById('opencodeUrl') as HTMLInputElement)?.value || '';
@@ -371,6 +373,7 @@ function getFormData(): ProjectFormData {
     techStack,
     mode: modeRadio?.value || 'new',
     model: model || undefined,
+    subagentModel: subagentModel || undefined,
   };
 
   if (formData.mode === 'existing' && existingPath.trim()) {
@@ -454,8 +457,12 @@ function handleFormSubmit(event: Event): void {
 }
 
 function initForm(): void {
-  fetchModels().then(populateModelSelect).catch(() => {
-    populateModelSelect({ models: [], default: DEFAULT_MODEL });
+  fetchModels().then((data) => {
+    populateModelSelect(data, 'model');
+    populateModelSelect(data, 'subagentModel');
+  }).catch(() => {
+    populateModelSelect({ models: [], default: DEFAULT_MODEL }, 'model');
+    populateModelSelect({ models: [], default: DEFAULT_MODEL }, 'subagentModel');
   });
 
   const form = document.getElementById('project-form') as HTMLFormElement;

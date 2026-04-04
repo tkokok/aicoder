@@ -538,7 +538,7 @@ async function sendPromptWithRetry(
   while (attempt < config.maxRetries) {
     attempt++;
     try {
-      await client.sendMessage(sessionId, parts, { agent: 'AICoder', model: config.model || 'zhipuai-coding-plan/glm-5.1' });
+      await client.sendMessage(sessionId, parts, { agent: 'AICoder', model: config.model });
       return await pollForResponse(client, sessionId);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';

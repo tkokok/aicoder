@@ -3,7 +3,7 @@ import { db, transaction, generateId } from './db';
 import { validateSessionInput, SessionInput } from './validation';
 import { OpenCodeManager, OpenCodeClient, type SSEEvent } from './opencode';
 import { executePipeline } from './pipeline';
-import { mkdir, cp, access, rm, stat } from 'fs/promises';
+import { mkdir, cp, access, rm, stat, readFile, writeFile } from 'fs/promises';
 import { join, dirname, basename } from 'path';
 import { homedir } from 'os';
 import { exec } from 'child_process';
@@ -18,6 +18,7 @@ interface CreateSessionBody {
   devEnv?: unknown;
   testMethod?: unknown;
   model?: unknown;
+  subagentModel?: unknown;
   mode?: unknown;
   existingPath?: unknown;
   opencodeUrl?: unknown;
@@ -96,6 +97,25 @@ async function initGitRepo(dir: string): Promise<void> {
   } catch {
     // ignore errors
   }
+}
+
+async function injectAgentModel(agentPath: string, model: string): Promise<void> {
+  const content = await readFile(agentPath, 'utf-8');
+  const frontmatterRegex = /^---\n([\s\S]*?)\n---\n/;
+  const match = content.match(frontmatterRegex);
+  if (!match) {
+    const newContent = `---\nmodel: ${model}\n---\n\n${content}`;
+    await writeFile(agentPath, newContent, 'utf-8');
+    return;
+  }
+  let frontmatter = match[1];
+  if (/^model:/m.test(frontmatter)) {
+    frontmatter = frontmatter.replace(/^model:.*$/m, `model: ${model}`);
+  } else {
+    frontmatter = `model: ${model}\n${frontmatter}`;
+  }
+  const newContent = content.replace(frontmatterRegex, `---\n${frontmatter}\n---\n`);
+  await writeFile(agentPath, newContent, 'utf-8');
 }
 
 async function getGitRepoName(dir: string): Promise<string | null> {
@@ -184,6 +204,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         devEnv: request.body.devEnv,
         testMethod: request.body.testMethod,
         model: request.body.model,
+        subagentModel: request.body.subagentModel,
         mode: request.body.mode,
         existingPath: request.body.existingPath,
         opencodeUrl: request.body.opencodeUrl,
@@ -214,6 +235,19 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.status(500).send({
           error: 'Failed to create project directory',
         });
+      }
+
+      const mainModel = input.model && typeof input.model === 'string' ? input.model : 'kimi-for-coding/k2p5';
+      const subagentModel = input.subagentModel && typeof input.subagentModel === 'string' ? input.subagentModel : 'kimi-for-coding/k2p5';
+      const agentsDest = join(projectDir, '.opencode', 'agent');
+      try {
+        await injectAgentModel(join(agentsDest, 'AICoder.md'), mainModel);
+        for (const sub of ['clarify', 'design', 'task', 'dev', 'test', 'review', 'validate']) {
+          await injectAgentModel(join(agentsDest, `${sub}.md`), subagentModel);
+        }
+        request.log.info(`[routes] Injected agent models: main=${mainModel}, sub=${subagentModel}`);
+      } catch (err) {
+        request.log.error({ err }, '[routes] Failed to inject agent models');
       }
 
       let workspaceDir: string;
@@ -347,15 +381,17 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
           );
 
           db.prepare(
-            `INSERT INTO session_inputs (session_id, project_name, requirements, tech_stack, dev_env, test_method)
-             VALUES (?, ?, ?, ?, ?, ?)`
+            `INSERT INTO session_inputs (session_id, project_name, requirements, tech_stack, dev_env, test_method, model, subagent_model)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(
             sessionId,
             projectName,
             requireString(input.requirements, 'requirements'),
             requireString(input.techStack, 'techStack'),
             input.devEnv ? requireString(input.devEnv, 'devEnv') : '',
-            input.testMethod ? requireString(input.testMethod, 'testMethod') : ''
+            input.testMethod ? requireString(input.testMethod, 'testMethod') : '',
+            mainModel,
+            subagentModel
           );
         });
       } catch (error) {
@@ -365,7 +401,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         });
       }
 
-      const model = input.model && typeof input.model === 'string' ? input.model : undefined;
+      const model = mainModel;
       const userInput = requireString(input.requirements, 'requirements');
 
       const unsubscribeSSE = client.subscribeEvents((event) => {
