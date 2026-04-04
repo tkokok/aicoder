@@ -54,6 +54,7 @@ export interface PipelineConfig {
   maxRetries: number;
   retryDelayMs: number;
   workspaceDir: string;
+  projectDir: string;
   agentsDir: string;
   model?: string;
 }
@@ -63,6 +64,7 @@ export interface ExecutePipelineOptions {
   opencodeSessionId: string;
   userInput: string;
   workspaceDir: string;
+  projectDir: string;
   agentsDir?: string;
   model?: string;
 }
@@ -85,6 +87,7 @@ const DEFAULT_CONFIG: PipelineConfig = {
   maxRetries: 3,
   retryDelayMs: 2000,
   workspaceDir: './workspace',
+  projectDir: './workspace',
   agentsDir: './agents',
 };
 
@@ -339,6 +342,7 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
   const finalConfig: PipelineConfig = {
     ...DEFAULT_CONFIG,
     workspaceDir: options.workspaceDir,
+    projectDir: options.projectDir,
     agentsDir: options.agentsDir ?? DEFAULT_CONFIG.agentsDir,
     model: options.model,
   };
@@ -348,9 +352,9 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
 
   let status = createInitialStatus(sessionId);
   initPipelineStatus(sessionId);
-  await writeStatusFile(sessionId, status, finalConfig.workspaceDir);
+  await writeStatusFile(sessionId, status, finalConfig.projectDir);
 
-  const { client } = await OpenCodeManager.getOrCreate(finalConfig.workspaceDir);
+  const { client } = await OpenCodeManager.getOrCreate(finalConfig.projectDir);
 
   try {
     const result = await runMainAgentLoop(client, opencodeSessionId, options.userInput, sessionId, status, finalConfig);
@@ -360,7 +364,7 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
     updatePipelineStatus(sessionId, 'failed');
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     status = addError(status, 'validate', errorMessage, false);
-    await writeStatusFile(sessionId, status, finalConfig.workspaceDir);
+    await writeStatusFile(sessionId, status, finalConfig.projectDir);
     throw error;
   }
 }
@@ -373,7 +377,7 @@ async function runMainAgentLoop(
   status: PipelineStatus,
   config: PipelineConfig
 ): Promise<PipelineStatus> {
-  const promptParts = buildMainAgentPrompt(userInput, sessionId, config.workspaceDir);
+  const promptParts = buildMainAgentPrompt(userInput, sessionId, config.workspaceDir, config.projectDir);
 
   const response = await sendPromptWithRetry(
     client,
@@ -383,61 +387,39 @@ async function runMainAgentLoop(
   );
 
   // Try to build a status object from the main agent's final JSON report.
-  const finalStatus = await buildStatusFromMainAgentResponse(sessionId, status, response, config.workspaceDir);
-  await writeStatusFile(sessionId, finalStatus, config.workspaceDir);
+  const finalStatus = await buildStatusFromMainAgentResponse(sessionId, status, response, config.projectDir);
+  await writeStatusFile(sessionId, finalStatus, config.projectDir);
   return finalStatus;
 }
 
 function buildMainAgentPrompt(
   userInput: string,
   sessionId: string,
-  workspaceDir: string
+  workspaceDir: string,
+  projectDir: string
 ): PromptPart[] {
   return [
     {
       type: 'text',
-      text: `You are the AICoder Main Orchestrator Agent.
+      text: `You are AICoder, the strict pipeline controller.
 
-## CRITICAL RULE — DO NOT VIOLATE
-You MUST delegate ALL concrete work to the appropriate sub-agent. You are strictly FORBIDDEN from:
-- Writing, editing, or generating source code yourself
-- Creating architecture or design documents yourself
-- Writing tests or running test commands yourself
-- Performing code reviews or validation yourself
-
-Your ONLY responsibilities are:
-1. INVOKE the correct sub-agent for the current stage (e.g., @dev for coding)
-2. WAIT for the sub-agent to return its result
-3. VERIFY / CHECK that the sub-agent's output is complete, correct, and satisfies the stage requirements
-4. If the output is insufficient, ask the SAME sub-agent to refine it — do NOT do it yourself
-5. If the output is good, SAVE it as JSON to \`${workspaceDir}/run-${sessionId}/<stage-name>.json\` and pass a concise summary to the next sub-agent
-6. REPEAT for all 7 stages in strict order
-
-## Sub-Agent Call Order
-1. @clarify
-2. @design
-3. @task
-4. @dev
-5. @test
-6. @review
-7. @validate
+## Context for This Session
+- Session ID: ${sessionId}
+- Workspace Directory (where code lives): ${workspaceDir}/
+- Stage JSON outputs go here: ${projectDir}/run-${sessionId}/<stage>.json
+- Implementation code must be created in: ${workspaceDir}/
 
 ## User Requirements
 ${userInput}
 
-## Session Context
-- Session ID: ${sessionId}
-- Workspace Directory: ${workspaceDir}/run-${sessionId}/
-
-## Output Format
-When the entire pipeline is complete, return ONE final JSON object:
-- \`finish\`: "stop"
-- \`pipeline_status\`: "completed" or "failed"
-- \`stages\`: an object with each stage's status and output summary
-- \`summary\`: brief overall summary
-- \`errors\`: array of any errors encountered
-
-Do not ask the user for clarification between stages. Work autonomously.`,
+## Reminder
+- Call exactly ONE sub-agent per stage, wait for its response, validate it, save the JSON, then move to the next stage.
+- The @dev agent MUST write source files to the workspace directory (${workspaceDir}).
+- Pipeline JSON outputs MUST be saved to ${projectDir}/run-${sessionId}/<stage>.json.
+- You may retry a failed stage at most 2 additional times (3 attempts total).
+- If a stage still fails after 3 attempts, stop the pipeline and mark it as failed.
+- NEVER do the sub-agent's work yourself.
+- Return ONLY the final JSON object when done.`,
     },
   ];
 }
@@ -530,7 +512,7 @@ async function sendPromptWithRetry(
     attempt++;
     try {
       if (attempt === 1) {
-        await client.sendMessage(sessionId, parts, { agent: 'main', model: config.model || 'zhipuai-coding-plan/glm-5.1' });
+        await client.sendMessage(sessionId, parts, { agent: 'AICoder', model: config.model || 'zhipuai-coding-plan/glm-5.1' });
       }
       return await pollForResponse(client, sessionId);
     } catch (error) {

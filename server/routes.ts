@@ -3,9 +3,13 @@ import { db, transaction, generateId } from './db';
 import { validateSessionInput, SessionInput } from './validation';
 import { OpenCodeManager, OpenCodeClient, type SSEEvent } from './opencode';
 import { executePipeline } from './pipeline';
-import { mkdir, cp, access, rm } from 'fs/promises';
-import { join } from 'path';
+import { mkdir, cp, access, rm, stat } from 'fs/promises';
+import { join, dirname, basename } from 'path';
 import { homedir } from 'os';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 interface CreateSessionBody {
   projectName: unknown;
@@ -14,6 +18,8 @@ interface CreateSessionBody {
   devEnv?: unknown;
   testMethod?: unknown;
   model?: unknown;
+  mode?: unknown;
+  existingPath?: unknown;
   opencodeUrl?: unknown;
   opencodeHeader?: unknown;
   opencodeUsername?: unknown;
@@ -52,7 +58,7 @@ function sanitizeProjectName(name: string): string {
 
 /**
  * Creates project directory structure at ~/.aicoder/projects/{project_name}/
- * Returns the project path.
+ * Returns the project path (managed directory for agents, schemas, and run outputs).
  */
 async function createProjectDirectory(projectName: string): Promise<string> {
   const sanitized = sanitizeProjectName(projectName);
@@ -82,6 +88,30 @@ async function createProjectDirectory(projectName: string): Promise<string> {
   }
 
   return baseDir;
+}
+
+async function initGitRepo(dir: string): Promise<void> {
+  try {
+    await execAsync('git init', { cwd: dir });
+  } catch {
+    // ignore errors
+  }
+}
+
+async function getGitRepoName(dir: string): Promise<string | null> {
+  try {
+    const { stdout } = await execAsync('git remote get-url origin', { cwd: dir });
+    const url = stdout.trim();
+    if (!url) return null;
+    // Extract repo name from URL like git@host:owner/repo.git or https://host/owner/repo.git
+    const match = url.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (match) {
+      return match[1];
+    }
+    return basename(url, '.git') || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
@@ -154,6 +184,8 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         devEnv: request.body.devEnv,
         testMethod: request.body.testMethod,
         model: request.body.model,
+        mode: request.body.mode,
+        existingPath: request.body.existingPath,
         opencodeUrl: request.body.opencodeUrl,
         opencodeHeader: request.body.opencodeHeader,
         opencodeUsername: request.body.opencodeUsername,
@@ -169,18 +201,68 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const projectName = requireString(input.projectName, 'projectName');
-      request.log.info(`[routes] Creating session for project: ${projectName}`);
+      const mode = typeof input.mode === 'string' && input.mode.trim() === 'existing' ? 'existing' : 'new';
+      request.log.info(`[routes] Creating session for project: ${projectName} (mode=${mode})`);
 
-      let projectPath: string;
+      let projectDir: string;
 
       try {
-        projectPath = await createProjectDirectory(projectName);
-        request.log.info(`[routes] Project directory created: ${projectPath}`);
+        projectDir = await createProjectDirectory(projectName);
+        request.log.info(`[routes] Project directory created: ${projectDir}`);
       } catch (error) {
         request.log.error({ err: error }, '[routes] Failed to create project directory');
         return reply.status(500).send({
           error: 'Failed to create project directory',
         });
+      }
+
+      let workspaceDir: string;
+      let repoName: string | null = null;
+      if (mode === 'existing') {
+        const existingPath = requireString(input.existingPath, 'existingPath');
+        try {
+          const s = await stat(existingPath);
+          if (!s.isDirectory()) {
+            return reply.status(400).send({ error: 'Existing project path is not a directory' });
+          }
+        } catch {
+          return reply.status(400).send({ error: 'Existing project path does not exist or is not accessible' });
+        }
+        // Must be a git repository so we can create a worktree
+        try {
+          await execAsync('git rev-parse --git-dir', { cwd: existingPath });
+        } catch {
+          return reply.status(400).send({ error: 'Existing project path is not a git repository' });
+        }
+        workspaceDir = join(projectDir, 'workspace');
+        // Remove the pre-created empty workspace directory so git worktree can create it
+        try {
+          await rm(workspaceDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
+        const branchName = `aicoder-${sanitizeProjectName(projectName)}`;
+        try {
+          await execAsync(`git worktree add "${workspaceDir}" -b ${branchName}`, { cwd: existingPath });
+        } catch (err: any) {
+          // If branch already exists, attach to it
+          if (err?.stderr?.includes('already exists') || err?.message?.includes('already exists')) {
+            try {
+              await execAsync(`git worktree add "${workspaceDir}" ${branchName}`, { cwd: existingPath });
+            } catch (err2: any) {
+              request.log.error({ err: err2 }, '[routes] Failed to add git worktree with existing branch');
+              return reply.status(500).send({ error: 'Failed to create git worktree from existing project' });
+            }
+          } else {
+            request.log.error({ err }, '[routes] Failed to add git worktree');
+            return reply.status(500).send({ error: 'Failed to create git worktree from existing project' });
+          }
+        }
+        repoName = await getGitRepoName(existingPath);
+        request.log.info(`[routes] Created worktree ${workspaceDir} from ${existingPath} (branch=${branchName}), repoName=${repoName}`);
+      } else {
+        workspaceDir = join(projectDir, 'workspace');
+        await initGitRepo(workspaceDir);
       }
 
       let opencodeSessionId: string;
@@ -211,7 +293,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         isExternal = true;
         opencodeUrl = input.opencodeUrl.trim();
         try {
-          const external = OpenCodeManager.getOrCreateExternal(projectPath, opencodeUrl, { extraHeaders, auth });
+          const external = OpenCodeManager.getOrCreateExternal(projectDir, opencodeUrl, { extraHeaders, auth });
           client = external.client;
           request.log.info(`[routes] Using external OpenCode at ${opencodeUrl}`);
           const opencodeSession = await client.createSession({ title: projectName });
@@ -223,8 +305,8 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         }
       } else {
         try {
-          request.log.info(`[routes] Getting/creating OpenCode process for: ${projectPath}`);
-          const created = await OpenCodeManager.getOrCreate(projectPath);
+          request.log.info(`[routes] Getting/creating OpenCode process for: ${projectDir}`);
+          const created = await OpenCodeManager.getOrCreate(projectDir);
           client = created.client;
           request.log.info(`[routes] OpenCode process ready at ${created.process.url}`);
           opencodeUrl = created.process.url;
@@ -249,12 +331,14 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       try {
         transaction(() => {
           db.prepare(
-            `INSERT INTO sessions (id, opencode_session_id, project_path, opencode_url, opencode_header, opencode_username, opencode_password, status, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+            `INSERT INTO sessions (id, opencode_session_id, project_path, workspace_path, repo_name, opencode_url, opencode_header, opencode_username, opencode_password, status, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
           ).run(
             sessionId,
             opencodeSessionId,
-            projectPath,
+            projectDir,
+            workspaceDir,
+            repoName || '',
             opencodeUrl,
             input.opencodeHeader && typeof input.opencodeHeader === 'string' ? input.opencodeHeader.trim() : '',
             input.opencodeUsername && typeof input.opencodeUsername === 'string' ? input.opencodeUsername.trim() : '',
@@ -294,7 +378,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         client,
         sessionId,
         opencodeSessionId,
-        projectPath,
+        projectDir,
         (event) => {
           try {
             (fastify as any).broadcastEvent(event);
@@ -303,9 +387,9 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       );
 
       const maybeShutdownTempProcess = () => {
-        if (!isExternal && OpenCodeManager.isManagedProcess(projectPath)) {
+        if (!isExternal && OpenCodeManager.isManagedProcess(projectDir)) {
           request.log.info(`[routes] Shutting down temporary OpenCode process for ${sessionId}`);
-          OpenCodeManager.shutdown(projectPath);
+          OpenCodeManager.shutdown(projectDir);
         }
       };
 
@@ -313,7 +397,8 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         sessionId,
         opencodeSessionId,
         userInput,
-        workspaceDir: projectPath,
+        workspaceDir,
+        projectDir,
         model,
       }).then((result) => {
         request.log.info(`[routes] Pipeline completed for session ${sessionId}`);
@@ -367,8 +452,8 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params;
 
       const session = db.prepare(
-        'SELECT id, status, opencode_url, project_path, current_agent, latest_message, stages_json, created_at, completed_at FROM sessions WHERE id = ?',
-      ).get(id) as { id: string; status: string; opencode_url?: string; project_path?: string; current_agent?: string; latest_message?: string; stages_json?: string; created_at: number; completed_at?: number } | undefined;
+        'SELECT id, status, opencode_url, project_path, workspace_path, repo_name, current_agent, latest_message, stages_json, created_at, completed_at FROM sessions WHERE id = ?',
+      ).get(id) as { id: string; status: string; opencode_url?: string; project_path?: string; workspace_path?: string; repo_name?: string; current_agent?: string; latest_message?: string; stages_json?: string; created_at: number; completed_at?: number } | undefined;
 
       if (!session) {
         return reply.status(404).send({ error: 'Session not found' });
@@ -469,7 +554,7 @@ function startProgressPolling(
   client: OpenCodeClient,
   sessionId: string,
   opencodeSessionId: string,
-  workspaceDir: string,
+  projectDir: string,
   broadcast: (event: SSEEvent) => void
 ): () => void {
   let running = true;
@@ -481,7 +566,7 @@ function startProgressPolling(
       let completedStages = 0;
       for (const stage of STAGE_ORDER) {
         try {
-          await access(join(workspaceDir, `run-${sessionId}`, `${stage}.json`));
+          await access(join(projectDir, `run-${sessionId}`, `${stage}.json`));
           completedStages++;
         } catch {
           break;

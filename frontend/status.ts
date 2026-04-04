@@ -109,7 +109,20 @@ class StatusPage {
       }
 
       if (typeof data.project_path === 'string' && data.project_path) {
-        this.updateProjectPath(data.project_path);
+        this.updateProjectDir(data.project_path);
+      }
+
+      const workspacePath = typeof data.workspace_path === 'string' && data.workspace_path
+        ? data.workspace_path
+        : typeof data.project_path === 'string' && data.project_path
+        ? data.project_path
+        : undefined;
+      if (workspacePath) {
+        this.updateWorkspacePath(workspacePath);
+      }
+
+      if (typeof data.repo_name === 'string' && data.repo_name) {
+        this.updateRepoName(data.repo_name);
       }
 
       const currentAgent = typeof data.current_agent === 'string' ? data.current_agent : undefined;
@@ -427,8 +440,43 @@ class StatusPage {
     }
   }
 
-  private updateProjectPath(path: string): void {
+  private updateProjectDir(path: string): void {
     const el = document.getElementById('project-path');
+    if (el) {
+      el.textContent = path;
+    }
+    const copyBtn = document.getElementById('copy-project-path-btn') as HTMLButtonElement | null;
+    if (copyBtn) {
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(path).then(() => {
+          const original = copyBtn.textContent;
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => {
+            copyBtn.textContent = original;
+          }, 1500);
+        }).catch(() => {
+          const textArea = document.createElement('textarea');
+          textArea.value = path;
+          document.body.appendChild(textArea);
+          textArea.select();
+          try {
+            document.execCommand('copy');
+            const original = copyBtn.textContent;
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => {
+              copyBtn.textContent = original;
+            }, 1500);
+          } catch {
+            // ignore
+          }
+          document.body.removeChild(textArea);
+        });
+      };
+    }
+  }
+
+  private updateWorkspacePath(path: string): void {
+    const el = document.getElementById('workspace-path');
     if (el) {
       el.textContent = path;
     }
@@ -460,6 +508,13 @@ class StatusPage {
           document.body.removeChild(textArea);
         });
       };
+    }
+  }
+
+  private updateRepoName(name: string): void {
+    const el = document.getElementById('repo-name');
+    if (el) {
+      el.textContent = name;
     }
   }
 

@@ -105,9 +105,16 @@
             <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
               OpenCode URL: <a id="opencode-url" href="#" target="_blank" style="color: var(--color-primary-600);">-</a>
             </div>
-            <div class="font-mono" style="font-size: var(--font-size-sm); color: var(--color-neutral-500); display: flex; align-items: center; gap: var(--space-2);">
+            <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500); display: flex; align-items: center; gap: var(--space-2);">
               <span>Project Path: <span id="project-path">-</span></span>
+              <button type="button" id="copy-project-path-btn" class="btn btn-secondary" style="padding: var(--space-1) var(--space-2); font-size: var(--font-size-xs);">Copy</button>
+            </div>
+            <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500); display: flex; align-items: center; gap: var(--space-2);">
+              <span>Workspace Path: <span id="workspace-path">-</span></span>
               <button type="button" id="copy-path-btn" class="btn btn-secondary" style="padding: var(--space-1) var(--space-2); font-size: var(--font-size-xs);">Copy</button>
+            </div>
+            <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
+              Repo Name: <span id="repo-name">-</span>
             </div>
             <div class="mt-4">
               <a href="/" class="btn btn-secondary">← Back to Projects</a>

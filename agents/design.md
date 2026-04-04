@@ -73,7 +73,7 @@ When designing the architecture, address:
 - **Specific Versions**: Always specify exact library versions (e.g., `react@18.2.0`, not `react@18`)
 - **Realistic Choices**: Select technologies that work well together and have proven compatibility
 - **Document Rationale**: Include why certain technologies were chosen when relevant
-- **Complete Structure**: Provide a thorough file structure that reflects the architecture
+- **Complete Structure**: Provide a thorough file structure that reflects the architecture. Files should be placed in the **project root directory** (same level as `run-{session-id}/`), NOT inside `run-{session-id}/`.
 - **Realistic Assumptions**: State assumptions that could impact implementation
 
 ## Process

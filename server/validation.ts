@@ -128,6 +128,8 @@ export interface SessionInput {
   devEnv?: unknown;
   testMethod?: unknown;
   model?: unknown;
+  mode?: unknown;
+  existingPath?: unknown;
   opencodeUrl?: unknown;
   opencodeHeader?: unknown;
   opencodeUsername?: unknown;
@@ -140,6 +142,35 @@ export interface SessionInput {
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
+}
+
+function validateMode(mode: unknown, existingPath: unknown): true | string {
+  if (mode === undefined || mode === null) {
+    return true; // default to new
+  }
+  if (typeof mode !== 'string') {
+    return 'Mode must be a string';
+  }
+  const trimmed = mode.trim();
+  if (trimmed !== 'new' && trimmed !== 'existing') {
+    return 'Mode must be "new" or "existing"';
+  }
+  if (trimmed === 'existing') {
+    if (existingPath === undefined || existingPath === null) {
+      return 'Existing project path is required when mode is "existing"';
+    }
+    if (typeof existingPath !== 'string') {
+      return 'Existing project path must be a string';
+    }
+    const pathTrimmed = existingPath.trim();
+    if (pathTrimmed.length === 0) {
+      return 'Existing project path cannot be empty';
+    }
+    if (!pathTrimmed.startsWith('/')) {
+      return 'Existing project path must be an absolute path';
+    }
+  }
+  return true;
 }
 
 /**
@@ -173,6 +204,11 @@ export function validateSessionInput(input: SessionInput): ValidationResult {
   const testMethodResult = validateTestMethod(input.testMethod);
   if (testMethodResult !== true) {
     errors.push(testMethodResult);
+  }
+
+  const modeResult = validateMode(input.mode, input.existingPath);
+  if (modeResult !== true) {
+    errors.push(modeResult);
   }
 
   if (input.opencodeUrl !== undefined && input.opencodeUrl !== null && typeof input.opencodeUrl === 'string' && input.opencodeUrl.trim()) {

@@ -30,6 +30,23 @@
 
             <form id="project-form" class="form">
               <div class="form-group">
+                <label class="form-label form-label-required">Project Mode</label>
+                <div class="form-radio-group" style="display: flex; gap: var(--space-4); margin-top: var(--space-2);">
+                  <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                    <input type="radio" name="mode" value="new" id="mode-new" checked>
+                    <span>New Project</span>
+                  </label>
+                  <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                    <input type="radio" name="mode" value="existing" id="mode-existing">
+                    <span>Existing Project</span>
+                  </label>
+                </div>
+                <span id="mode-hint" class="form-hint">
+                  New projects are created under ~/.aicoder/projects/. Existing projects use the path you provide.
+                </span>
+              </div>
+
+              <div class="form-group">
                 <label for="projectName" class="form-label form-label-required">
                   Project Name
                 </label>
@@ -48,6 +65,24 @@
                   Lowercase letters, numbers, underscore, hyphen. Must start with a letter and end with a letter or number. Min 5 characters.
                 </span>
                 <span id="projectName-error" class="form-error hidden" role="alert"></span>
+              </div>
+
+              <div class="form-group hidden" id="existingPath-group">
+                <label for="existingPath" class="form-label form-label-required">
+                  Existing Project Path
+                </label>
+                <input
+                  type="text"
+                  id="existingPath"
+                  name="existingPath"
+                  class="form-input"
+                  placeholder="/absolute/path/to/your/project"
+                  aria-describedby="existingPath-hint existingPath-error"
+                >
+                <span id="existingPath-hint" class="form-hint">
+                  Absolute path to an existing git repository. AICoder will create a git worktree under the managed project directory so your original repo stays untouched.
+                </span>
+                <span id="existingPath-error" class="form-error hidden" role="alert"></span>
               </div>
 
               <div class="form-group">

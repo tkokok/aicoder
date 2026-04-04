@@ -9,6 +9,8 @@ interface ProjectFormData {
   model?: string;
   devEnv?: string;
   testMethod?: string;
+  mode?: string;
+  existingPath?: string;
   opencodeUrl?: string;
   opencodeHeader?: string;
   opencodeUsername?: string;
@@ -73,31 +75,43 @@ function populateModelSelect(data: { models: Array<{ id: string; name: string }>
 
 function validateProjectName(value: string): string | null {
   const trimmed = value.trim();
-  
+
   if (trimmed.length === 0) {
     return 'Project name is required';
   }
-  
+
   if (trimmed.length <= 4) {
     return 'Project name must be more than 4 characters';
   }
-  
+
   if (trimmed.length > 100) {
     return 'Project name must be at most 100 characters';
   }
-  
+
   if (!/^[a-z]/.test(trimmed)) {
     return 'Project name must start with a lowercase letter';
   }
-  
+
   if (!/[a-z0-9]$/.test(trimmed)) {
     return 'Project name must end with a letter or number';
   }
-  
+
   if (!/^[a-z0-9_-]+$/.test(trimmed)) {
     return 'Project name can only contain lowercase a-z, 0-9, underscore, and hyphen';
   }
-  
+
+  return null;
+}
+
+function validateExistingPath(value: string, mode: string): string | null {
+  if (mode !== 'existing') return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return 'Existing project path is required';
+  }
+  if (!trimmed.startsWith('/')) {
+    return 'Existing project path must be an absolute path';
+  }
   return null;
 }
 
@@ -188,29 +202,35 @@ function validateOpencodePassword(value: string): string | null {
 
 function validateForm(formData: ProjectFormData): ValidationError[] {
   const errors: ValidationError[] = [];
-  
+  const mode = formData.mode || 'new';
+
   const projectNameError = validateProjectName(formData.projectName);
   if (projectNameError) {
     errors.push({ field: 'projectName', message: projectNameError });
   }
-  
+
+  const existingPathError = validateExistingPath(formData.existingPath || '', mode);
+  if (existingPathError) {
+    errors.push({ field: 'existingPath', message: existingPathError });
+  }
+
   const requirementsError = validateRequirements(formData.requirements);
   if (requirementsError) {
     errors.push({ field: 'requirements', message: requirementsError });
   }
-  
+
   const techStackError = validateTechStack(formData.techStack);
   if (techStackError) {
     errors.push({ field: 'techStack', message: techStackError });
   }
-  
+
   if (formData.devEnv) {
     const devEnvError = validateDevEnv(formData.devEnv);
     if (devEnvError) {
       errors.push({ field: 'devEnv', message: devEnvError });
     }
   }
-  
+
   if (formData.testMethod) {
     const testMethodError = validateTestMethod(formData.testMethod);
     if (testMethodError) {
@@ -234,7 +254,7 @@ function validateForm(formData: ProjectFormData): ValidationError[] {
     const passwordError = validateOpencodePassword(formData.opencodePassword);
     if (passwordError) errors.push({ field: 'opencodePassword', message: passwordError });
   }
-  
+
   return errors;
 }
 
@@ -267,16 +287,16 @@ function clearFieldError(fieldId: string): void {
 }
 
 function clearAllErrors(): void {
-  const fields = ['projectName', 'requirements', 'techStack', 'devEnv', 'testMethod', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
+  const fields = ['projectName', 'existingPath', 'requirements', 'techStack', 'devEnv', 'testMethod', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
   fields.forEach(field => clearFieldError(field));
-  
+
   const errorContainer = document.getElementById('error-container') as HTMLElement;
   const errorList = document.getElementById('error-list') as HTMLUListElement;
-  
+
   if (errorContainer) {
     errorContainer.classList.add('hidden');
   }
-  
+
   if (errorList) {
     errorList.innerHTML = '';
   }
@@ -332,7 +352,9 @@ function setSubmitButtonLoading(loading: boolean): void {
 }
 
 function getFormData(): ProjectFormData {
+  const modeRadio = document.querySelector('input[name="mode"]:checked') as HTMLInputElement | null;
   const projectName = (document.getElementById('projectName') as HTMLInputElement)?.value || '';
+  const existingPath = (document.getElementById('existingPath') as HTMLInputElement)?.value || '';
   const requirements = (document.getElementById('requirements') as HTMLTextAreaElement)?.value || '';
   const techStack = (document.getElementById('techStack') as HTMLInputElement)?.value || '';
   const model = (document.getElementById('model') as HTMLSelectElement)?.value || '';
@@ -342,18 +364,23 @@ function getFormData(): ProjectFormData {
   const opencodeHeader = (document.getElementById('opencodeHeader') as HTMLInputElement)?.value || '';
   const opencodeUsername = (document.getElementById('opencodeUsername') as HTMLInputElement)?.value || '';
   const opencodePassword = (document.getElementById('opencodePassword') as HTMLInputElement)?.value || '';
-  
+
   const formData: ProjectFormData = {
     projectName,
     requirements,
     techStack,
+    mode: modeRadio?.value || 'new',
     model: model || undefined,
   };
-  
+
+  if (formData.mode === 'existing' && existingPath.trim()) {
+    formData.existingPath = existingPath.trim();
+  }
+
   if (devEnv.trim()) {
     formData.devEnv = devEnv;
   }
-  
+
   if (testMethod.trim()) {
     formData.testMethod = testMethod;
   }
@@ -370,7 +397,7 @@ function getFormData(): ProjectFormData {
   if (opencodePassword) {
     formData.opencodePassword = opencodePassword;
   }
-  
+
   return formData;
 }
 
@@ -437,18 +464,22 @@ function initForm(): void {
     form.addEventListener('submit', handleFormSubmit);
   }
   
-  const inputs = ['projectName', 'requirements', 'techStack', 'devEnv', 'testMethod', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
+  const inputs = ['projectName', 'existingPath', 'requirements', 'techStack', 'devEnv', 'testMethod', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
   inputs.forEach(inputId => {
     const input = document.getElementById(inputId) as HTMLInputElement | HTMLTextAreaElement;
-    
+
     if (input) {
       input.addEventListener('blur', () => {
         const value = input.value;
+        const mode = (document.querySelector('input[name="mode"]:checked') as HTMLInputElement | null)?.value || 'new';
         let error: string | null = null;
-        
+
         switch (inputId) {
           case 'projectName':
             error = validateProjectName(value);
+            break;
+          case 'existingPath':
+            error = validateExistingPath(value, mode);
             break;
           case 'requirements':
             error = validateRequirements(value);
@@ -475,18 +506,34 @@ function initForm(): void {
             error = validateOpencodePassword(value);
             break;
         }
-        
+
         if (error) {
           showFieldError(inputId, error);
         } else {
           clearFieldError(inputId);
         }
       });
-      
+
       input.addEventListener('input', () => {
         clearFieldError(inputId);
       });
     }
+  });
+
+  const modeRadios = document.querySelectorAll('input[name="mode"]');
+  modeRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      const selected = (document.querySelector('input[name="mode"]:checked') as HTMLInputElement | null)?.value || 'new';
+      const existingGroup = document.getElementById('existingPath-group');
+      if (existingGroup) {
+        if (selected === 'existing') {
+          existingGroup.classList.remove('hidden');
+        } else {
+          existingGroup.classList.add('hidden');
+          clearFieldError('existingPath');
+        }
+      }
+    });
   });
 }
 
