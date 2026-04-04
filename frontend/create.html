@@ -144,6 +144,81 @@
                 <span id="testMethod-error" class="form-error hidden" role="alert"></span>
               </div>
 
+              <div class="card" style="border: 1px solid var(--color-neutral-200); margin-top: var(--space-6);">
+                <div class="card-header" style="padding: var(--space-4); border-bottom: 1px solid var(--color-neutral-200); background: var(--color-neutral-50);">
+                  <h3 class="card-title" style="font-size: var(--font-size-base); margin: 0;">External OpenCode Environment (Optional)</h3>
+                </div>
+                <div class="card-body" style="padding: var(--space-4);">
+                  <div class="form-group">
+                    <label for="opencodeUrl" class="form-label">
+                      OpenCode URL
+                    </label>
+                    <input
+                      type="url"
+                      id="opencodeUrl"
+                      name="opencodeUrl"
+                      class="form-input"
+                      placeholder="http://localhost:3000"
+                      aria-describedby="opencodeUrl-hint opencodeUrl-error"
+                    >
+                    <span id="opencodeUrl-hint" class="form-hint">
+                      Optional: URL of an existing OpenCode server. Leave blank to start a temporary local server.
+                    </span>
+                    <span id="opencodeUrl-error" class="form-error hidden" role="alert"></span>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="opencodeHeader" class="form-label">
+                      Custom Header
+                    </label>
+                    <input
+                      type="text"
+                      id="opencodeHeader"
+                      name="opencodeHeader"
+                      class="form-input"
+                      placeholder="X-Auth-Token: mytoken"
+                      aria-describedby="opencodeHeader-hint opencodeHeader-error"
+                    >
+                    <span id="opencodeHeader-hint" class="form-hint">
+                      Optional: Custom HTTP header in "Key: Value" format
+                    </span>
+                    <span id="opencodeHeader-error" class="form-error hidden" role="alert"></span>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="opencodeUsername" class="form-label">
+                        Username
+                      </label>
+                      <input
+                        type="text"
+                        id="opencodeUsername"
+                        name="opencodeUsername"
+                        class="form-input"
+                        placeholder="user"
+                        aria-describedby="opencodeUsername-error"
+                      >
+                      <span id="opencodeUsername-error" class="form-error hidden" role="alert"></span>
+                    </div>
+
+                    <div class="form-group">
+                      <label for="opencodePassword" class="form-label">
+                        Password
+                      </label>
+                      <input
+                        type="password"
+                        id="opencodePassword"
+                        name="opencodePassword"
+                        class="form-input"
+                        placeholder="password"
+                        aria-describedby="opencodePassword-error"
+                      >
+                      <span id="opencodePassword-error" class="form-error hidden" role="alert"></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="form-group" style="margin-top: var(--space-8);">
                 <button
                   type="submit"

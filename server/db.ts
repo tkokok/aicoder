@@ -42,6 +42,10 @@ function runMigrations() {
     ['sessions', 'opencode_url', 'TEXT'],
     ['sessions', 'current_agent', 'TEXT'],
     ['sessions', 'latest_message', 'TEXT'],
+    ['sessions', 'stages_json', 'TEXT'],
+    ['sessions', 'opencode_header', 'TEXT'],
+    ['sessions', 'opencode_username', 'TEXT'],
+    ['sessions', 'opencode_password', 'TEXT'],
   ];
 
   for (const [table, column, type] of migrations) {

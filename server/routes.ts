@@ -14,6 +14,10 @@ interface CreateSessionBody {
   devEnv?: unknown;
   testMethod?: unknown;
   model?: unknown;
+  opencodeUrl?: unknown;
+  opencodeHeader?: unknown;
+  opencodeUsername?: unknown;
+  opencodePassword?: unknown;
 }
 
 interface SessionResponse {
@@ -150,6 +154,10 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         devEnv: request.body.devEnv,
         testMethod: request.body.testMethod,
         model: request.body.model,
+        opencodeUrl: request.body.opencodeUrl,
+        opencodeHeader: request.body.opencodeHeader,
+        opencodeUsername: request.body.opencodeUsername,
+        opencodePassword: request.body.opencodePassword,
       };
 
       const validation = validateSessionInput(input);
@@ -177,24 +185,62 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
 
       let opencodeSessionId: string;
       let opencodeUrl: string;
+      let client: OpenCodeClient;
+      let isExternal = false;
+      const extraHeaders: Record<string, string> = {};
+      const auth = input.opencodeUsername && input.opencodePassword &&
+        typeof input.opencodeUsername === 'string' && typeof input.opencodePassword === 'string'
+        ? { username: input.opencodeUsername, password: input.opencodePassword }
+        : undefined;
 
-      try {
-        request.log.info(`[routes] Getting/creating OpenCode process for: ${projectPath}`);
-        const { client, process: ocProcess } = await OpenCodeManager.getOrCreate(projectPath);
-        request.log.info(`[routes] OpenCode process ready at ${ocProcess.url}`);
-        opencodeUrl = ocProcess.url;
+      if (input.opencodeHeader && typeof input.opencodeHeader === 'string' && input.opencodeHeader.trim()) {
+        // Support "Key: Value" or "Key=Value" format, or simple string as header value
+        const headerStr = input.opencodeHeader.trim();
+        const colonIdx = headerStr.indexOf(':');
+        const eqIdx = headerStr.indexOf('=');
+        if (colonIdx > 0) {
+          extraHeaders[headerStr.slice(0, colonIdx).trim()] = headerStr.slice(colonIdx + 1).trim();
+        } else if (eqIdx > 0) {
+          extraHeaders[headerStr.slice(0, eqIdx).trim()] = headerStr.slice(eqIdx + 1).trim();
+        } else {
+          extraHeaders['x-custom-header'] = headerStr;
+        }
+      }
 
-        request.log.info(`[routes] Creating OpenCode session with title: ${projectName}`);
-        const opencodeSession = await client.createSession({
-          title: projectName,
-        });
-        opencodeSessionId = opencodeSession.id;
-        request.log.info(`[routes] OpenCode session created: ${opencodeSessionId}`);
-      } catch (error) {
-        request.log.error({ err: error }, '[routes] Failed to create OpenCode session');
-        return reply.status(502).send({
-          error: 'Failed to create session with OpenCode',
-        });
+      if (input.opencodeUrl && typeof input.opencodeUrl === 'string' && input.opencodeUrl.trim()) {
+        isExternal = true;
+        opencodeUrl = input.opencodeUrl.trim();
+        try {
+          const external = OpenCodeManager.getOrCreateExternal(projectPath, opencodeUrl, { extraHeaders, auth });
+          client = external.client;
+          request.log.info(`[routes] Using external OpenCode at ${opencodeUrl}`);
+          const opencodeSession = await client.createSession({ title: projectName });
+          opencodeSessionId = opencodeSession.id;
+          request.log.info(`[routes] OpenCode session created on external server: ${opencodeSessionId}`);
+        } catch (error) {
+          request.log.error({ err: error }, '[routes] Failed to connect to external OpenCode');
+          return reply.status(502).send({ error: 'Failed to connect to external OpenCode server' });
+        }
+      } else {
+        try {
+          request.log.info(`[routes] Getting/creating OpenCode process for: ${projectPath}`);
+          const created = await OpenCodeManager.getOrCreate(projectPath);
+          client = created.client;
+          request.log.info(`[routes] OpenCode process ready at ${created.process.url}`);
+          opencodeUrl = created.process.url;
+
+          request.log.info(`[routes] Creating OpenCode session with title: ${projectName}`);
+          const opencodeSession = await client.createSession({
+            title: projectName,
+          });
+          opencodeSessionId = opencodeSession.id;
+          request.log.info(`[routes] OpenCode session created: ${opencodeSessionId}`);
+        } catch (error) {
+          request.log.error({ err: error }, '[routes] Failed to create OpenCode session');
+          return reply.status(502).send({
+            error: 'Failed to create session with OpenCode',
+          });
+        }
       }
 
       const sessionId = generateId();
@@ -203,9 +249,18 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       try {
         transaction(() => {
           db.prepare(
-            `INSERT INTO sessions (id, opencode_session_id, project_path, opencode_url, status, created_at) 
-             VALUES (?, ?, ?, ?, 'pending', ?)`
-          ).run(sessionId, opencodeSessionId, projectPath, opencodeUrl, Date.now());
+            `INSERT INTO sessions (id, opencode_session_id, project_path, opencode_url, opencode_header, opencode_username, opencode_password, status, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+          ).run(
+            sessionId,
+            opencodeSessionId,
+            projectPath,
+            opencodeUrl,
+            input.opencodeHeader && typeof input.opencodeHeader === 'string' ? input.opencodeHeader.trim() : '',
+            input.opencodeUsername && typeof input.opencodeUsername === 'string' ? input.opencodeUsername.trim() : '',
+            input.opencodePassword && typeof input.opencodePassword === 'string' ? input.opencodePassword : '',
+            Date.now()
+          );
 
           db.prepare(
             `INSERT INTO session_inputs (session_id, project_name, requirements, tech_stack, dev_env, test_method)
@@ -229,8 +284,6 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       const model = input.model && typeof input.model === 'string' ? input.model : undefined;
       const userInput = requireString(input.requirements, 'requirements');
 
-      const { client } = await OpenCodeManager.getOrCreate(projectPath);
-
       const unsubscribeSSE = client.subscribeEvents((event) => {
         try {
           (fastify as any).broadcastEvent(event);
@@ -249,6 +302,13 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         }
       );
 
+      const maybeShutdownTempProcess = () => {
+        if (!isExternal && OpenCodeManager.isManagedProcess(projectPath)) {
+          request.log.info(`[routes] Shutting down temporary OpenCode process for ${sessionId}`);
+          OpenCodeManager.shutdown(projectPath);
+        }
+      };
+
       executePipeline({
         sessionId,
         opencodeSessionId,
@@ -258,6 +318,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       }).then((result) => {
         request.log.info(`[routes] Pipeline completed for session ${sessionId}`);
         stopProgressPolling();
+        maybeShutdownTempProcess();
         const reportMd = JSON.stringify(result, null, 2);
         transaction(() => {
           db.prepare(
@@ -277,6 +338,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       }).catch((error) => {
         request.log.error({ err: error }, `[routes] Pipeline failed for session ${sessionId}`);
         stopProgressPolling();
+        maybeShutdownTempProcess();
         transaction(() => {
           db.prepare(
             `UPDATE sessions SET status = 'failed', current_agent = 'failed', completed_at = ? WHERE id = ?`
@@ -305,14 +367,24 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params;
 
       const session = db.prepare(
-        'SELECT id, status, opencode_url, current_agent, latest_message, created_at, completed_at FROM sessions WHERE id = ?',
-      ).get(id) as { id: string; status: string; opencode_url?: string; current_agent?: string; latest_message?: string; created_at: number; completed_at?: number } | undefined;
+        'SELECT id, status, opencode_url, project_path, current_agent, latest_message, stages_json, created_at, completed_at FROM sessions WHERE id = ?',
+      ).get(id) as { id: string; status: string; opencode_url?: string; project_path?: string; current_agent?: string; latest_message?: string; stages_json?: string; created_at: number; completed_at?: number } | undefined;
 
       if (!session) {
         return reply.status(404).send({ error: 'Session not found' });
       }
 
-      return reply.send(session);
+      let stagesObj: Record<string, unknown> | null = null;
+      if (session.stages_json) {
+        try {
+          stagesObj = JSON.parse(session.stages_json) as Record<string, unknown>;
+        } catch {}
+      }
+
+      return reply.send({
+        ...session,
+        stages: stagesObj,
+      });
     }
   );
 
@@ -442,10 +514,24 @@ function startProgressPolling(
         // ignore
       }
 
+      // Build persisted stages snapshot from disk
+      const stagesSnapshot: Record<string, { status: string }> = {};
+      for (let i = 0; i < STAGE_ORDER.length; i++) {
+        const stage = STAGE_ORDER[i];
+        if (i < completedStages) {
+          stagesSnapshot[stage] = { status: 'completed' };
+        } else if (i === completedStages && currentStage !== 'completed') {
+          stagesSnapshot[stage] = { status: 'running' };
+        } else {
+          stagesSnapshot[stage] = { status: 'pending' };
+        }
+      }
+      const stagesJson = JSON.stringify(stagesSnapshot);
+
       // Update DB
       db.prepare(
-        `UPDATE sessions SET current_agent = ?, latest_message = ? WHERE id = ?`
-      ).run(currentAgent, latestMessage, sessionId);
+        `UPDATE sessions SET current_agent = ?, latest_message = ?, stages_json = ? WHERE id = ?`
+      ).run(currentAgent, latestMessage, stagesJson, sessionId);
 
       // Broadcast
       broadcast({
@@ -456,6 +542,7 @@ function startProgressPolling(
           current_agent: currentAgent,
           latest_message: latestMessage,
           progress_percent: progressPercent,
+          stages: stagesSnapshot,
         },
       });
     } catch {

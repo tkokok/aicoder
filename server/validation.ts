@@ -128,6 +128,10 @@ export interface SessionInput {
   devEnv?: unknown;
   testMethod?: unknown;
   model?: unknown;
+  opencodeUrl?: unknown;
+  opencodeHeader?: unknown;
+  opencodeUsername?: unknown;
+  opencodePassword?: unknown;
 }
 
 /**
@@ -169,6 +173,26 @@ export function validateSessionInput(input: SessionInput): ValidationResult {
   const testMethodResult = validateTestMethod(input.testMethod);
   if (testMethodResult !== true) {
     errors.push(testMethodResult);
+  }
+
+  if (input.opencodeUrl !== undefined && input.opencodeUrl !== null && typeof input.opencodeUrl === 'string' && input.opencodeUrl.trim()) {
+    try {
+      new URL(input.opencodeUrl);
+    } catch {
+      errors.push('OpenCode URL must be a valid URL');
+    }
+  }
+
+  if (input.opencodeHeader !== undefined && input.opencodeHeader !== null && typeof input.opencodeHeader === 'string' && input.opencodeHeader.trim().length > 500) {
+    errors.push('OpenCode header must be at most 500 characters');
+  }
+
+  if (input.opencodeUsername !== undefined && input.opencodeUsername !== null && typeof input.opencodeUsername === 'string' && input.opencodeUsername.trim().length > 200) {
+    errors.push('OpenCode username must be at most 200 characters');
+  }
+
+  if (input.opencodePassword !== undefined && input.opencodePassword !== null && typeof input.opencodePassword === 'string' && input.opencodePassword.length > 500) {
+    errors.push('OpenCode password must be at most 500 characters');
   }
 
   return {

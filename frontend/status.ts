@@ -108,6 +108,10 @@ class StatusPage {
         this.updateOpenCodeUrl(data.opencode_url);
       }
 
+      if (typeof data.project_path === 'string' && data.project_path) {
+        this.updateProjectPath(data.project_path);
+      }
+
       const currentAgent = typeof data.current_agent === 'string' ? data.current_agent : undefined;
       const latestMessage = typeof data.latest_message === 'string' ? data.latest_message : undefined;
       const status = typeof data.status === 'string' ? data.status : 'pending';
@@ -119,10 +123,25 @@ class StatusPage {
         this.updateLatestMessage(latestMessage || 'Waiting for updates...');
       }
 
+      // Render persisted stages snapshot if available
+      if (data.stages && typeof data.stages === 'object' && data.stages !== null) {
+        const stages = data.stages as Record<string, { status?: string }>;
+        for (const stage of STAGE_ORDER) {
+          const stageData = stages[stage];
+          if (stageData?.status) {
+            this.updateStageIndicator(stage, stageData.status as StageStatus);
+          } else {
+            this.updateStageIndicator(stage, 'pending');
+          }
+        }
+      }
+
       // Derive progress from current_agent / status if we don't have a full PipelineStatus yet
       if (status === 'completed') {
         this.updateProgress(100, 'Completed');
-        this.updateAllStagesCompleted();
+        if (!data.stages) {
+          this.updateAllStagesCompleted();
+        }
       } else if (status === 'failed') {
         this.updateProgress(0, 'Failed');
       } else if (currentAgent && currentAgent !== 'completed') {
@@ -131,14 +150,16 @@ class StatusPage {
           const stageIndex = STAGE_ORDER.indexOf(agentStage as PipelineStage);
           const progress = Math.round((stageIndex / STAGE_ORDER.length) * 100);
           this.updateProgress(progress, this.formatStageName(agentStage as PipelineStage));
-          // Mark previous stages completed, current running
-          for (let i = 0; i < STAGE_ORDER.length; i++) {
-            if (i < stageIndex) {
-              this.updateStageIndicator(STAGE_ORDER[i], 'completed');
-            } else if (i === stageIndex) {
-              this.updateStageIndicator(STAGE_ORDER[i], 'running');
-            } else {
-              this.updateStageIndicator(STAGE_ORDER[i], 'pending');
+          // If no stages snapshot from DB, mark previous stages completed, current running
+          if (!data.stages) {
+            for (let i = 0; i < STAGE_ORDER.length; i++) {
+              if (i < stageIndex) {
+                this.updateStageIndicator(STAGE_ORDER[i], 'completed');
+              } else if (i === stageIndex) {
+                this.updateStageIndicator(STAGE_ORDER[i], 'running');
+              } else {
+                this.updateStageIndicator(STAGE_ORDER[i], 'pending');
+              }
             }
           }
         }
@@ -220,6 +241,10 @@ class StatusPage {
     }
   }
 
+  private isCurrentSession(data: Record<string, unknown>): boolean {
+    return typeof data.session_id === 'string' && data.session_id === this.sessionId;
+  }
+
   private handleMessage(message: WebSocketMessage): void {
     switch (message.event) {
       case 'connected':
@@ -229,19 +254,27 @@ class StatusPage {
         break;
 
       case 'progress':
-        this.handleProgressUpdate(message.data);
+        if (this.isCurrentSession(message.data)) {
+          this.handleProgressUpdate(message.data);
+        }
         break;
 
       case 'stage_update':
-        this.handleStageUpdate(message.data as { stage: PipelineStage; status: StageStatus });
+        if (this.isCurrentSession(message.data)) {
+          this.handleStageUpdate(message.data as { stage: PipelineStage; status: StageStatus });
+        }
         break;
 
       case 'completed':
-        this.handleCompletion(message.data as { session_id: string });
+        if (this.isCurrentSession(message.data)) {
+          this.handleCompletion(message.data as { session_id: string });
+        }
         break;
 
       case 'failed':
-        this.handleFailure(message.data as { stage: PipelineStage; error: string });
+        if (this.isCurrentSession(message.data)) {
+          this.handleFailure(message.data as { stage: PipelineStage; error: string });
+        }
         break;
 
       default:
@@ -271,6 +304,17 @@ class StatusPage {
     if (currentStage && progressPercent !== undefined) {
       const label = currentStage === 'completed' ? 'Completed' : this.formatStageName(currentStage as PipelineStage);
       this.updateProgress(progressPercent, label);
+    }
+
+    // Update stage indicators from explicit stages snapshot if provided
+    if (data.stages && typeof data.stages === 'object' && data.stages !== null && !data.pipeline) {
+      const stages = data.stages as Record<string, { status?: string }>;
+      for (const stage of STAGE_ORDER) {
+        const stageData = stages[stage];
+        this.updateStageIndicator(stage, (stageData?.status as StageStatus) || 'pending');
+      }
+    } else if (currentStage && progressPercent !== undefined && !data.stages) {
+      // Fallback: infer from current_stage
       if (currentStage !== 'completed' && currentStage !== 'failed' && STAGE_ORDER.includes(currentStage as PipelineStage)) {
         const idx = STAGE_ORDER.indexOf(currentStage as PipelineStage);
         for (let i = 0; i < STAGE_ORDER.length; i++) {
@@ -383,6 +427,42 @@ class StatusPage {
     }
   }
 
+  private updateProjectPath(path: string): void {
+    const el = document.getElementById('project-path');
+    if (el) {
+      el.textContent = path;
+    }
+    const copyBtn = document.getElementById('copy-path-btn') as HTMLButtonElement | null;
+    if (copyBtn) {
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(path).then(() => {
+          const original = copyBtn.textContent;
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => {
+            copyBtn.textContent = original;
+          }, 1500);
+        }).catch(() => {
+          // Fallback for older browsers or denied permission
+          const textArea = document.createElement('textarea');
+          textArea.value = path;
+          document.body.appendChild(textArea);
+          textArea.select();
+          try {
+            document.execCommand('copy');
+            const original = copyBtn.textContent;
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => {
+              copyBtn.textContent = original;
+            }, 1500);
+          } catch {
+            // ignore
+          }
+          document.body.removeChild(textArea);
+        });
+      };
+    }
+  }
+
   private updateAllStages(status: PipelineStatus): void {
     for (const stage of STAGE_ORDER) {
       const stageResult = status.stages[stage];
@@ -393,28 +473,13 @@ class StatusPage {
   }
 
   private updateStageIndicator(stage: PipelineStage, status: StageStatus): void {
-    const stageItem = document.querySelector(`[data-stage="${stage}"]`);
-    if (!stageItem) return;
+    const step = document.querySelector(`.progress-step[data-stage="${stage}"]`);
+    if (!step) return;
 
-    const indicator = stageItem.querySelector('.stage-indicator');
-    const statusText = stageItem.querySelector('.stage-status');
-
-    if (indicator) {
-      indicator.classList.remove('pending', 'running', 'completed', 'failed');
-      indicator.classList.add(status);
-    }
-
-    if (statusText) {
-      statusText.classList.remove('pending', 'running', 'completed', 'failed');
-      statusText.classList.add(status);
-      statusText.textContent = this.getStatusText(status);
-    }
-
-    stageItem.classList.remove('active', 'completed');
-    if (status === 'running') {
-      stageItem.classList.add('active');
-    } else if (status === 'completed' || status === 'skipped') {
-      stageItem.classList.add('completed');
+    const dot = step.querySelector('[data-dot]');
+    if (dot) {
+      dot.classList.remove('pending', 'running', 'completed', 'failed');
+      dot.classList.add(status);
     }
   }
 

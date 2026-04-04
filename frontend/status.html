@@ -5,6 +5,80 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AICoder - Pipeline Status</title>
   <link rel="stylesheet" href="styles.css">
+  <style>
+    .step-track {
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      margin-top: var(--space-4);
+    }
+    .step-track::before {
+      content: '';
+      position: absolute;
+      top: 10px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--color-neutral-200);
+      z-index: 0;
+    }
+    .progress-step {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: var(--space-2);
+    }
+    .step-dot {
+      width: 22px;
+      height: 22px;
+      border-radius: var(--radius-full);
+      background: var(--color-neutral-0);
+      border: 2px solid var(--color-neutral-300);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: var(--font-weight-bold);
+      color: var(--color-neutral-500);
+      transition: all var(--transition-fast);
+    }
+    .step-dot.pending {
+      background: var(--color-neutral-0);
+      border-color: var(--color-neutral-300);
+      color: var(--color-neutral-500);
+    }
+    .step-dot.running {
+      background: var(--color-primary-500);
+      border-color: var(--color-primary-500);
+      color: var(--color-neutral-0);
+      animation: pulse 2s infinite;
+    }
+    .step-dot.completed {
+      background: var(--color-success-500);
+      border-color: var(--color-success-500);
+      color: var(--color-neutral-0);
+    }
+    .step-dot.failed {
+      background: var(--color-error-500);
+      border-color: var(--color-error-500);
+      color: var(--color-neutral-0);
+    }
+    .step-label {
+      font-size: var(--font-size-xs);
+      color: var(--color-neutral-500);
+      text-transform: capitalize;
+      white-space: nowrap;
+    }
+    @media (max-width: 640px) {
+      .step-label {
+        display: none;
+      }
+    }
+  </style>
 </head>
 <body>
   <div class="page">
@@ -28,8 +102,12 @@
             <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
               Session ID: <span id="session-id">-</span>
             </div>
-            <div class="font-mono" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
+            <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
               OpenCode URL: <a id="opencode-url" href="#" target="_blank" style="color: var(--color-primary-600);">-</a>
+            </div>
+            <div class="font-mono" style="font-size: var(--font-size-sm); color: var(--color-neutral-500); display: flex; align-items: center; gap: var(--space-2);">
+              <span>Project Path: <span id="project-path">-</span></span>
+              <button type="button" id="copy-path-btn" class="btn btn-secondary" style="padding: var(--space-1) var(--space-2); font-size: var(--font-size-xs);">Copy</button>
             </div>
             <div class="mt-4">
               <a href="/" class="btn btn-secondary">← Back to Projects</a>
@@ -50,6 +128,36 @@
               <div class="progress-bar">
                 <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
               </div>
+              <div class="step-track" id="step-track">
+                <div class="progress-step" data-stage="clarify">
+                  <div class="step-dot pending" data-dot>1</div>
+                  <div class="step-label">Clarify</div>
+                </div>
+                <div class="progress-step" data-stage="design">
+                  <div class="step-dot pending" data-dot>2</div>
+                  <div class="step-label">Design</div>
+                </div>
+                <div class="progress-step" data-stage="task">
+                  <div class="step-dot pending" data-dot>3</div>
+                  <div class="step-label">Task</div>
+                </div>
+                <div class="progress-step" data-stage="dev">
+                  <div class="step-dot pending" data-dot>4</div>
+                  <div class="step-label">Dev</div>
+                </div>
+                <div class="progress-step" data-stage="test">
+                  <div class="step-dot pending" data-dot>5</div>
+                  <div class="step-label">Test</div>
+                </div>
+                <div class="progress-step" data-stage="review">
+                  <div class="step-dot pending" data-dot>6</div>
+                  <div class="step-label">Review</div>
+                </div>
+                <div class="progress-step" data-stage="validate">
+                  <div class="step-dot pending" data-dot>7</div>
+                  <div class="step-label">Validate</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -61,71 +169,6 @@
           <div class="card-body">
             <div class="font-mono" style="font-size: var(--font-size-sm); color: var(--color-neutral-600); white-space: pre-wrap;" id="latest-message">
               Waiting for updates...
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <h2 class="card-title">Pipeline Stages</h2>
-          </div>
-          <div class="card-body">
-            <div class="stage-timeline" id="stage-timeline">
-              <div class="stage-item" data-stage="clarify">
-                <div class="stage-indicator pending">1</div>
-                <div class="stage-content">
-                  <h3 class="stage-name">Clarify</h3>
-                  <p class="stage-status">Waiting to start</p>
-                </div>
-              </div>
-
-              <div class="stage-item" data-stage="design">
-                <div class="stage-indicator pending">2</div>
-                <div class="stage-content">
-                  <h3 class="stage-name">Design</h3>
-                  <p class="stage-status">Waiting to start</p>
-                </div>
-              </div>
-
-              <div class="stage-item" data-stage="task">
-                <div class="stage-indicator pending">3</div>
-                <div class="stage-content">
-                  <h3 class="stage-name">Task</h3>
-                  <p class="stage-status">Waiting to start</p>
-                </div>
-              </div>
-
-              <div class="stage-item" data-stage="dev">
-                <div class="stage-indicator pending">4</div>
-                <div class="stage-content">
-                  <h3 class="stage-name">Development</h3>
-                  <p class="stage-status">Waiting to start</p>
-                </div>
-              </div>
-
-              <div class="stage-item" data-stage="test">
-                <div class="stage-indicator pending">5</div>
-                <div class="stage-content">
-                  <h3 class="stage-name">Test</h3>
-                  <p class="stage-status">Waiting to start</p>
-                </div>
-              </div>
-
-              <div class="stage-item" data-stage="review">
-                <div class="stage-indicator pending">6</div>
-                <div class="stage-content">
-                  <h3 class="stage-name">Review</h3>
-                  <p class="stage-status">Waiting to start</p>
-                </div>
-              </div>
-
-              <div class="stage-item" data-stage="validate">
-                <div class="stage-indicator pending">7</div>
-                <div class="stage-content">
-                  <h3 class="stage-name">Validate</h3>
-                  <p class="stage-status">Waiting to start</p>
-                </div>
-              </div>
             </div>
           </div>
         </div>

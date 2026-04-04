@@ -118,12 +118,9 @@ class OpenCodeProcess {
 
   private spawn(): void {
     const binaryPath = process.env.OPENCODE_BIN_PATH || `${process.env.HOME}/.opencode/bin/opencode`;
-    const args = [
-      binaryPath,
-      'serve',
-      '--port', String(this.port),
-      '--hostname', this.hostname,
-    ];
+    const command = `${binaryPath} serve --port ${this.port} --hostname ${this.hostname}`;
+    // Use bash -lc to load shell environment variables (e.g. from .bashrc / .bash_profile)
+    const args = ['bash', '-lc', command];
     log.info('process', `Spawning: ${args.join(' ')}`);
     log.info('process', `Working directory: ${this.projectDir}`);
 
@@ -131,6 +128,7 @@ class OpenCodeProcess {
       cwd: this.projectDir,
       stdout: 'pipe',
       stderr: 'pipe',
+      env: process.env,
     });
 
     log.info('process', `Subprocess PID: ${this.process.pid}`);
@@ -224,14 +222,36 @@ class OpenCodeProcess {
 // OpenCode Client
 // ============================================================================
 
+export interface OpenCodeClientAuth {
+  username: string;
+  password: string;
+}
+
 export class OpenCodeClient {
   private baseUrl: string;
   private directory: string;
+  private extraHeaders: Record<string, string>;
+  private auth: OpenCodeClientAuth | null;
 
-  constructor(opts: { baseUrl: string; directory: string }) {
+  constructor(opts: { baseUrl: string; directory: string; extraHeaders?: Record<string, string>; auth?: OpenCodeClientAuth }) {
     this.baseUrl = opts.baseUrl.replace(/\/$/, '');
     this.directory = opts.directory;
-    log.info('client', `Created client → ${this.baseUrl}, dir=${this.directory}`);
+    this.extraHeaders = opts.extraHeaders || {};
+    this.auth = opts.auth || null;
+    log.info('client', `Created client → ${this.baseUrl}, dir=${this.directory}, hasAuth=${!!this.auth}, hasExtraHeaders=${Object.keys(this.extraHeaders).length > 0}`);
+  }
+
+  private buildHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-opencode-directory': this.directory,
+      ...this.extraHeaders,
+    };
+    if (this.auth) {
+      const encoded = Buffer.from(`${this.auth.username}:${this.auth.password}`).toString('base64');
+      headers['Authorization'] = `Basic ${encoded}`;
+    }
+    return headers;
   }
 
   private async request<T>(
@@ -240,11 +260,7 @@ export class OpenCodeClient {
     body?: unknown
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'x-opencode-directory': this.directory,
-    };
+    const headers = this.buildHeaders();
 
     log.info('client', `→ ${method} ${url}`);
     if (body) {
@@ -281,7 +297,7 @@ export class OpenCodeClient {
       const url = `${this.baseUrl}/global/health`;
       log.info('client', `Health check → GET ${url}`);
       const response = await fetch(url, {
-        headers: { 'x-opencode-directory': this.directory },
+        headers: this.buildHeaders(),
       });
       const ok = response.status === 200;
       log.info('client', `Health check result: ${ok} (${response.status})`);
@@ -392,7 +408,7 @@ export class OpenCodeClient {
     const connect = async () => {
       try {
         const response = await fetch(url, {
-          headers: { 'x-opencode-directory': this.directory },
+          headers: this.buildHeaders(),
         });
 
         if (!response.ok) {
@@ -468,6 +484,8 @@ export class OpenCodeClient {
 class OpenCodeManagerImpl {
   private processes: Map<string, OpenCodeProcess> = new Map();
   private clients: Map<string, OpenCodeClient> = new Map();
+  // Track which project dirs are using an external (user-provided) opencode server
+  private externalDirs: Set<string> = new Set();
 
   async getOrCreate(projectDir: string): Promise<{
     process: OpenCodeProcess;
@@ -497,9 +515,41 @@ class OpenCodeManagerImpl {
 
     this.processes.set(projectDir, newProcess);
     this.clients.set(projectDir, client);
+    this.externalDirs.delete(projectDir);
 
     log.info('manager', `Process registered. Total active: ${this.processes.size}`);
     return { process: newProcess, client };
+  }
+
+  getOrCreateExternal(
+    projectDir: string,
+    baseUrl: string,
+    opts?: { extraHeaders?: Record<string, string>; auth?: OpenCodeClientAuth }
+  ): { client: OpenCodeClient } {
+    const existingClient = this.clients.get(projectDir);
+    if (existingClient && this.externalDirs.has(projectDir)) {
+      log.info('manager', `Reusing existing external client for: ${projectDir} (url=${baseUrl})`);
+      return { client: existingClient };
+    }
+
+    log.info('manager', `Creating external client for: ${projectDir} (url=${baseUrl})`);
+    const client = new OpenCodeClient({
+      baseUrl,
+      directory: projectDir,
+      extraHeaders: opts?.extraHeaders,
+      auth: opts?.auth,
+    });
+
+    this.clients.set(projectDir, client);
+    this.externalDirs.add(projectDir);
+    // Ensure no local process is associated with this dir
+    const existingProcess = this.processes.get(projectDir);
+    if (existingProcess) {
+      existingProcess.close();
+      this.processes.delete(projectDir);
+    }
+
+    return { client };
   }
 
   shutdown(projectDir: string): void {
@@ -508,10 +558,13 @@ class OpenCodeManagerImpl {
       log.info('manager', `Shutting down process for: ${projectDir}`);
       process.close();
       this.processes.delete(projectDir);
-      this.clients.delete(projectDir);
-    } else {
-      log.info('manager', `No process found for: ${projectDir}`);
     }
+    this.clients.delete(projectDir);
+    this.externalDirs.delete(projectDir);
+  }
+
+  isManagedProcess(projectDir: string): boolean {
+    return this.processes.has(projectDir);
   }
 
   shutdownAll(): void {
@@ -522,6 +575,7 @@ class OpenCodeManagerImpl {
     }
     this.processes.clear();
     this.clients.clear();
+    this.externalDirs.clear();
     log.info('manager', `All processes stopped`);
   }
 }

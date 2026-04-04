@@ -9,6 +9,10 @@ interface ProjectFormData {
   model?: string;
   devEnv?: string;
   testMethod?: string;
+  opencodeUrl?: string;
+  opencodeHeader?: string;
+  opencodeUsername?: string;
+  opencodePassword?: string;
 }
 
 interface ValidationError {
@@ -145,6 +149,43 @@ function validateTestMethod(value: string): string | null {
   return null;
 }
 
+function validateOpencodeUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    new URL(trimmed);
+  } catch {
+    return 'OpenCode URL must be a valid URL';
+  }
+  return null;
+}
+
+function validateOpencodeHeader(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > 500) {
+    return 'OpenCode header must be at most 500 characters';
+  }
+  return null;
+}
+
+function validateOpencodeUsername(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > 200) {
+    return 'OpenCode username must be at most 200 characters';
+  }
+  return null;
+}
+
+function validateOpencodePassword(value: string): string | null {
+  if (!value) return null;
+  if (value.length > 500) {
+    return 'OpenCode password must be at most 500 characters';
+  }
+  return null;
+}
+
 function validateForm(formData: ProjectFormData): ValidationError[] {
   const errors: ValidationError[] = [];
   
@@ -175,6 +216,23 @@ function validateForm(formData: ProjectFormData): ValidationError[] {
     if (testMethodError) {
       errors.push({ field: 'testMethod', message: testMethodError });
     }
+  }
+
+  if (formData.opencodeUrl) {
+    const urlError = validateOpencodeUrl(formData.opencodeUrl);
+    if (urlError) errors.push({ field: 'opencodeUrl', message: urlError });
+  }
+  if (formData.opencodeHeader) {
+    const headerError = validateOpencodeHeader(formData.opencodeHeader);
+    if (headerError) errors.push({ field: 'opencodeHeader', message: headerError });
+  }
+  if (formData.opencodeUsername) {
+    const usernameError = validateOpencodeUsername(formData.opencodeUsername);
+    if (usernameError) errors.push({ field: 'opencodeUsername', message: usernameError });
+  }
+  if (formData.opencodePassword) {
+    const passwordError = validateOpencodePassword(formData.opencodePassword);
+    if (passwordError) errors.push({ field: 'opencodePassword', message: passwordError });
   }
   
   return errors;
@@ -209,7 +267,7 @@ function clearFieldError(fieldId: string): void {
 }
 
 function clearAllErrors(): void {
-  const fields = ['projectName', 'requirements', 'techStack', 'devEnv', 'testMethod'];
+  const fields = ['projectName', 'requirements', 'techStack', 'devEnv', 'testMethod', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
   fields.forEach(field => clearFieldError(field));
   
   const errorContainer = document.getElementById('error-container') as HTMLElement;
@@ -280,6 +338,10 @@ function getFormData(): ProjectFormData {
   const model = (document.getElementById('model') as HTMLSelectElement)?.value || '';
   const devEnv = (document.getElementById('devEnv') as HTMLInputElement)?.value || '';
   const testMethod = (document.getElementById('testMethod') as HTMLInputElement)?.value || '';
+  const opencodeUrl = (document.getElementById('opencodeUrl') as HTMLInputElement)?.value || '';
+  const opencodeHeader = (document.getElementById('opencodeHeader') as HTMLInputElement)?.value || '';
+  const opencodeUsername = (document.getElementById('opencodeUsername') as HTMLInputElement)?.value || '';
+  const opencodePassword = (document.getElementById('opencodePassword') as HTMLInputElement)?.value || '';
   
   const formData: ProjectFormData = {
     projectName,
@@ -294,6 +356,19 @@ function getFormData(): ProjectFormData {
   
   if (testMethod.trim()) {
     formData.testMethod = testMethod;
+  }
+
+  if (opencodeUrl.trim()) {
+    formData.opencodeUrl = opencodeUrl.trim();
+  }
+  if (opencodeHeader.trim()) {
+    formData.opencodeHeader = opencodeHeader.trim();
+  }
+  if (opencodeUsername.trim()) {
+    formData.opencodeUsername = opencodeUsername.trim();
+  }
+  if (opencodePassword) {
+    formData.opencodePassword = opencodePassword;
   }
   
   return formData;
@@ -362,7 +437,7 @@ function initForm(): void {
     form.addEventListener('submit', handleFormSubmit);
   }
   
-  const inputs = ['projectName', 'requirements', 'techStack', 'devEnv', 'testMethod'];
+  const inputs = ['projectName', 'requirements', 'techStack', 'devEnv', 'testMethod', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
   inputs.forEach(inputId => {
     const input = document.getElementById(inputId) as HTMLInputElement | HTMLTextAreaElement;
     
@@ -386,6 +461,18 @@ function initForm(): void {
             break;
           case 'testMethod':
             error = validateTestMethod(value);
+            break;
+          case 'opencodeUrl':
+            error = validateOpencodeUrl(value);
+            break;
+          case 'opencodeHeader':
+            error = validateOpencodeHeader(value);
+            break;
+          case 'opencodeUsername':
+            error = validateOpencodeUsername(value);
+            break;
+          case 'opencodePassword':
+            error = validateOpencodePassword(value);
             break;
         }
         
