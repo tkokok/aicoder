@@ -538,9 +538,7 @@ async function sendPromptWithRetry(
   while (attempt < config.maxRetries) {
     attempt++;
     try {
-      if (attempt === 1) {
-        await client.sendMessage(sessionId, parts, { agent: 'AICoder', model: config.model || 'zhipuai-coding-plan/glm-5.1' });
-      }
+      await client.sendMessage(sessionId, parts, { agent: 'AICoder', model: config.model || 'zhipuai-coding-plan/glm-5.1' });
       return await pollForResponse(client, sessionId);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -560,36 +558,47 @@ async function pollForResponse(
   maxAttempts = 600,
   pollIntervalMs = 5000
 ): Promise<Record<string, unknown>> {
+  let consecutiveErrors = 0;
   for (let i = 0; i < maxAttempts; i++) {
-    const messages = await client.getMessages(sessionId);
-    const assistantMessages = messages.filter((m) => m.role === 'assistant');
+    try {
+      const messages = await client.getMessages(sessionId);
+      consecutiveErrors = 0;
+      const assistantMessages = messages.filter((m) => m.role === 'assistant');
 
-    // Look for the most recent assistant message with finish=stop.
-    for (let j = assistantMessages.length - 1; j >= 0; j--) {
-      const msg = assistantMessages[j];
-      if (msg.finish === 'stop') {
-        const textParts = msg.parts?.filter((p) => p.type === 'text' && p.text) || [];
-        let rawText = '';
-        for (const part of textParts) {
-          rawText += part.text! + '\n';
-          const extracted = extractJSON(part.text!);
-          if (
-            extracted &&
-            typeof extracted === 'object' &&
-            !Array.isArray(extracted)
-          ) {
-            return extracted as Record<string, unknown>;
+      // Look for the most recent assistant message with finish=stop.
+      for (let j = assistantMessages.length - 1; j >= 0; j--) {
+        const msg = assistantMessages[j];
+        if (msg.finish === 'stop') {
+          const textParts = msg.parts?.filter((p) => p.type === 'text' && p.text) || [];
+          let rawText = '';
+          for (const part of textParts) {
+            rawText += part.text! + '\n';
+            const extracted = extractJSON(part.text!);
+            if (
+              extracted &&
+              typeof extracted === 'object' &&
+              !Array.isArray(extracted)
+            ) {
+              return extracted as Record<string, unknown>;
+            }
           }
+          // If finish=stop was found but JSON could not be parsed, don't loop
+          // forever waiting for another message. Return a fallback so the
+          // backend can recover using on-disk stage outputs.
+          return {
+            finish: 'stop',
+            pipeline_status: 'completed',
+            _rawResponse: rawText.trim(),
+          };
         }
-        // If finish=stop was found but JSON could not be parsed, don't loop
-        // forever waiting for another message. Return a fallback so the
-        // backend can recover using on-disk stage outputs.
-        return {
-          finish: 'stop',
-          pipeline_status: 'completed',
-          _rawResponse: rawText.trim(),
-        };
       }
+    } catch (error) {
+      if (isRecoverableError(error) && consecutiveErrors < 5) {
+        consecutiveErrors++;
+        await delay(RETRY_DELAYS[Math.min(consecutiveErrors - 1, RETRY_DELAYS.length - 1)]);
+        continue;
+      }
+      throw error;
     }
     await delay(pollIntervalMs);
   }
@@ -630,6 +639,14 @@ function isRecoverableError(error: unknown): boolean {
       /ECONNREFUSED/,
       /ECONNRESET/,
       /ETIMEDOUT/,
+      /503/,
+      /502/,
+      /504/,
+      /429/,
+      /Service Unavailable/,
+      /Bad Gateway/,
+      /Gateway Timeout/,
+      /Too Many Requests/,
     ];
     return recoverablePatterns.some((p) => p.test(error.message));
   }
