@@ -1,7 +1,8 @@
 /**
- * Status Page WebSocket Client
- * 
- * Handles real-time pipeline status updates via WebSocket connection.
+ * Status Page WebSocket Client + HTTP Polling Fallback
+ *
+ * Handles real-time pipeline status updates via WebSocket,
+ * with HTTP polling as a fallback for opencode_url, current_agent, and latest_message.
  */
 
 type PipelineStage = 'clarify' | 'design' | 'task' | 'dev' | 'test' | 'review' | 'validate';
@@ -48,12 +49,15 @@ const STAGE_ORDER: PipelineStage[] = [
 const WS_URL = `ws://${window.location.host}/ws`;
 const RECONNECT_DELAY = 3000;
 const MAX_RECONNECT_ATTEMPTS = 10;
+const POLL_INTERVAL = 3000;
 
 class StatusPage {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
   private sessionId: string | null = null;
   private currentStatus: PipelineStatus | null = null;
+  private pollTimer: number | null = null;
+  private opencodeUrl: string | null = null;
 
   constructor() {
     this.init();
@@ -63,6 +67,7 @@ class StatusPage {
     this.sessionId = this.getSessionIdFromUrl();
     if (this.sessionId) {
       this.updateSessionDisplay(this.sessionId);
+      this.startPolling();
     }
     this.connectWebSocket();
   }
@@ -79,6 +84,70 @@ class StatusPage {
     }
   }
 
+  private startPolling(): void {
+    this.fetchSessionStatus();
+    this.pollTimer = window.setInterval(() => this.fetchSessionStatus(), POLL_INTERVAL);
+  }
+
+  private stopPolling(): void {
+    if (this.pollTimer !== null) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
+  private async fetchSessionStatus(): Promise<void> {
+    if (!this.sessionId) return;
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(this.sessionId)}`);
+      if (!response.ok) return;
+      const data = (await response.json()) as Record<string, unknown>;
+
+      if (typeof data.opencode_url === 'string' && data.opencode_url) {
+        this.opencodeUrl = data.opencode_url;
+        this.updateOpenCodeUrl(data.opencode_url);
+      }
+
+      const currentAgent = typeof data.current_agent === 'string' ? data.current_agent : undefined;
+      const latestMessage = typeof data.latest_message === 'string' ? data.latest_message : undefined;
+      const status = typeof data.status === 'string' ? data.status : 'pending';
+
+      if (currentAgent) {
+        this.updateCurrentAgent(currentAgent);
+      }
+      if (latestMessage !== undefined) {
+        this.updateLatestMessage(latestMessage || 'Waiting for updates...');
+      }
+
+      // Derive progress from current_agent / status if we don't have a full PipelineStatus yet
+      if (status === 'completed') {
+        this.updateProgress(100, 'Completed');
+        this.updateAllStagesCompleted();
+      } else if (status === 'failed') {
+        this.updateProgress(0, 'Failed');
+      } else if (currentAgent && currentAgent !== 'completed') {
+        const agentStage = currentAgent.replace(' agent', '') as PipelineStage | 'completed';
+        if (STAGE_ORDER.includes(agentStage as PipelineStage)) {
+          const stageIndex = STAGE_ORDER.indexOf(agentStage as PipelineStage);
+          const progress = Math.round((stageIndex / STAGE_ORDER.length) * 100);
+          this.updateProgress(progress, this.formatStageName(agentStage as PipelineStage));
+          // Mark previous stages completed, current running
+          for (let i = 0; i < STAGE_ORDER.length; i++) {
+            if (i < stageIndex) {
+              this.updateStageIndicator(STAGE_ORDER[i], 'completed');
+            } else if (i === stageIndex) {
+              this.updateStageIndicator(STAGE_ORDER[i], 'running');
+            } else {
+              this.updateStageIndicator(STAGE_ORDER[i], 'pending');
+            }
+          }
+        }
+      }
+    } catch (err) {
+      // ignore polling errors
+    }
+  }
+
   private connectWebSocket(): void {
     try {
       this.ws = new WebSocket(WS_URL);
@@ -86,7 +155,7 @@ class StatusPage {
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
         this.updateConnectionStatus('connected');
-        
+
         if (this.sessionId) {
           this.ws?.send(JSON.stringify({
             type: 'subscribe',
@@ -160,7 +229,7 @@ class StatusPage {
         break;
 
       case 'progress':
-        this.handleProgressUpdate(message.data as unknown as PipelineStatus);
+        this.handleProgressUpdate(message.data);
         break;
 
       case 'stage_update':
@@ -180,14 +249,42 @@ class StatusPage {
     }
   }
 
-  private handleProgressUpdate(status: PipelineStatus): void {
-    this.currentStatus = status;
-    this.updateUI(status);
+  private handleProgressUpdate(data: Record<string, unknown>): void {
+    // Full PipelineStatus from legacy flow
+    if (data.stages && data.pipeline) {
+      this.currentStatus = data as unknown as PipelineStatus;
+      this.updateUI(this.currentStatus);
+    }
+
+    // Simplified progress from our new polling
+    const currentStage = typeof data.current_stage === 'string' ? data.current_stage : undefined;
+    const currentAgent = typeof data.current_agent === 'string' ? data.current_agent : undefined;
+    const latestMessage = typeof data.latest_message === 'string' ? data.latest_message : undefined;
+    const progressPercent = typeof data.progress_percent === 'number' ? data.progress_percent : undefined;
+
+    if (currentAgent) {
+      this.updateCurrentAgent(currentAgent);
+    }
+    if (latestMessage !== undefined) {
+      this.updateLatestMessage(latestMessage || 'Waiting for updates...');
+    }
+    if (currentStage && progressPercent !== undefined) {
+      const label = currentStage === 'completed' ? 'Completed' : this.formatStageName(currentStage as PipelineStage);
+      this.updateProgress(progressPercent, label);
+      if (currentStage !== 'completed' && currentStage !== 'failed' && STAGE_ORDER.includes(currentStage as PipelineStage)) {
+        const idx = STAGE_ORDER.indexOf(currentStage as PipelineStage);
+        for (let i = 0; i < STAGE_ORDER.length; i++) {
+          if (i < idx) this.updateStageIndicator(STAGE_ORDER[i], 'completed');
+          else if (i === idx) this.updateStageIndicator(STAGE_ORDER[i], 'running');
+          else this.updateStageIndicator(STAGE_ORDER[i], 'pending');
+        }
+      }
+    }
   }
 
   private handleStageUpdate(data: { stage: PipelineStage; status: StageStatus }): void {
     this.updateStageIndicator(data.stage, data.status);
-    
+
     if (data.status === 'running') {
       this.updateProgressStage(data.stage);
     }
@@ -197,7 +294,9 @@ class StatusPage {
     this.updateConnectionStatus('connected');
     this.updateAllStagesCompleted();
     this.updateProgress(100, 'Completed');
-    
+    this.updateCurrentAgent('completed');
+    this.stopPolling();
+
     setTimeout(() => {
       window.location.href = `report.html?session=${data.session_id}`;
     }, 2000);
@@ -206,6 +305,7 @@ class StatusPage {
   private handleFailure(data: { stage: PipelineStage; error: string }): void {
     this.updateStageIndicator(data.stage, 'failed');
     this.showError(`Pipeline failed at stage "${data.stage}": ${data.error}`);
+    this.stopPolling();
   }
 
   private updateUI(status: PipelineStatus): void {
@@ -215,12 +315,12 @@ class StatusPage {
 
   private updateProgressFromStatus(status: PipelineStatus): void {
     const currentStage = status.pipeline.current_stage;
-    
+
     if (currentStage === 'completed') {
       this.updateProgress(100, 'Completed');
       return;
     }
-    
+
     if (currentStage === 'failed') {
       this.updateProgress(0, 'Failed');
       return;
@@ -229,7 +329,7 @@ class StatusPage {
     const stageIndex = STAGE_ORDER.indexOf(currentStage);
     const totalStages = STAGE_ORDER.length;
     const progress = Math.round(((stageIndex) / totalStages) * 100);
-    
+
     this.updateProgress(progress, this.formatStageName(currentStage));
   }
 
@@ -255,6 +355,31 @@ class StatusPage {
     const progressStage = document.getElementById('progress-stage');
     if (progressStage) {
       progressStage.textContent = this.formatStageName(stage);
+    }
+  }
+
+  private updateCurrentAgent(agent: string): void {
+    // Show agent info near progress or in a dedicated element if desired
+    // For now, append to progress stage text
+    const progressStage = document.getElementById('progress-stage');
+    if (progressStage && agent && agent !== 'completed' && agent !== 'failed') {
+      const base = progressStage.textContent?.replace(/ \(.+\)$/, '') || '';
+      progressStage.textContent = `${base} (${agent})`;
+    }
+  }
+
+  private updateLatestMessage(text: string): void {
+    const el = document.getElementById('latest-message');
+    if (el) {
+      el.textContent = text;
+    }
+  }
+
+  private updateOpenCodeUrl(url: string): void {
+    const el = document.getElementById('opencode-url') as HTMLAnchorElement | null;
+    if (el) {
+      el.href = url;
+      el.textContent = url;
     }
   }
 

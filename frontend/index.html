@@ -3,8 +3,107 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AICoder - Create New Project</title>
+  <title>AICoder - Projects</title>
   <link rel="stylesheet" href="styles.css">
+  <style>
+    .toolbar {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: var(--space-6);
+    }
+    .session-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+    .session-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+      padding: var(--space-4);
+      border: 1px solid var(--color-neutral-200);
+      border-radius: var(--radius-md);
+      background: var(--color-neutral-0);
+      transition: box-shadow var(--transition-fast);
+    }
+    .session-item:hover {
+      box-shadow: var(--shadow-md);
+    }
+    .session-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .session-name {
+      margin: 0;
+      font-size: var(--font-size-lg);
+      font-weight: var(--font-weight-semibold);
+      color: var(--color-neutral-900);
+    }
+    .session-meta {
+      margin-top: var(--space-1);
+      font-size: var(--font-size-sm);
+      color: var(--color-neutral-500);
+    }
+    .session-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      flex-shrink: 0;
+    }
+    .empty-state {
+      text-align: center;
+      padding: var(--space-12) var(--space-4);
+      color: var(--color-neutral-500);
+    }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: var(--z-modal);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--transition-fast);
+    }
+    .modal-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .modal {
+      background: var(--color-neutral-0);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-xl);
+      width: 100%;
+      max-width: 480px;
+      margin: var(--space-4);
+      overflow: hidden;
+    }
+    .modal-header {
+      padding: var(--space-4) var(--space-6);
+      border-bottom: 1px solid var(--color-neutral-200);
+    }
+    .modal-title {
+      margin: 0;
+      font-size: var(--font-size-lg);
+      font-weight: var(--font-weight-semibold);
+    }
+    .modal-body {
+      padding: var(--space-6);
+    }
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: var(--space-3);
+      padding: var(--space-4) var(--space-6);
+      border-top: 1px solid var(--color-neutral-200);
+      background: var(--color-neutral-50);
+    }
+  </style>
 </head>
 <body>
   <div class="page">
@@ -17,150 +116,39 @@
 
     <main class="page-content">
       <div class="container">
-        <div class="card" style="max-width: 800px; margin: 0 auto;">
-          <div class="card-header">
-            <h2 class="card-title">Create New Project</h2>
-          </div>
-          
-          <div class="card-body">
-            <div id="error-container" class="alert alert-error hidden" role="alert">
-              <h4 class="alert-title">Validation Errors</h4>
-              <ul class="alert-list" id="error-list"></ul>
-            </div>
-
-            <form id="project-form" class="form">
-              <div class="form-group">
-                <label for="projectName" class="form-label form-label-required">
-                  Project Name
-                </label>
-                <input
-                  type="text"
-                  id="projectName"
-                  name="projectName"
-                  class="form-input"
-                  placeholder="my-awesome-project"
-                  required
-                  minlength="3"
-                  maxlength="100"
-                  aria-describedby="projectName-hint projectName-error"
-                >
-                <span id="projectName-hint" class="form-hint">
-                  3-100 characters
-                </span>
-                <span id="projectName-error" class="form-error hidden" role="alert"></span>
-              </div>
-
-              <div class="form-group">
-                <label for="requirements" class="form-label form-label-required">
-                  Requirements
-                </label>
-                <textarea
-                  id="requirements"
-                  name="requirements"
-                  class="form-textarea"
-                  placeholder="Describe what you want to build..."
-                  required
-                  minlength="10"
-                  aria-describedby="requirements-hint requirements-error"
-                ></textarea>
-                <span id="requirements-hint" class="form-hint">
-                  Minimum 10 characters
-                </span>
-                <span id="requirements-error" class="form-error hidden" role="alert"></span>
-              </div>
-
-              <div class="form-group">
-                <label for="techStack" class="form-label form-label-required">
-                  Tech Stack
-                </label>
-                <input
-                  type="text"
-                  id="techStack"
-                  name="techStack"
-                  class="form-input"
-                  placeholder="React, TypeScript, Node.js, PostgreSQL"
-                  required
-                  maxlength="200"
-                  aria-describedby="techStack-hint techStack-error"
-                >
-                <span id="techStack-hint" class="form-hint">
-                  Technologies and frameworks to use (max 200 characters)
-                </span>
-                <span id="techStack-error" class="form-error hidden" role="alert"></span>
-              </div>
-
-              <div class="form-group">
-                <label for="model" class="form-label">
-                  AI Model
-                </label>
-                <select
-                  id="model"
-                  name="model"
-                  class="form-input"
-                  aria-describedby="model-hint"
-                >
-                  <option value="">Loading models...</option>
-                </select>
-                <span id="model-hint" class="form-hint">
-                  AI model to use for code generation
-                </span>
-              </div>
-
-              <div class="form-group">
-                <label for="devEnv" class="form-label">
-                  Development Environment
-                </label>
-                <input
-                  type="text"
-                  id="devEnv"
-                  name="devEnv"
-                  class="form-input"
-                  placeholder="VS Code, Docker, macOS"
-                  maxlength="200"
-                  aria-describedby="devEnv-hint devEnv-error"
-                >
-                <span id="devEnv-hint" class="form-hint">
-                  Optional: IDE, container setup, OS (max 200 characters)
-                </span>
-                <span id="devEnv-error" class="form-error hidden" role="alert"></span>
-              </div>
-
-              <div class="form-group">
-                <label for="testMethod" class="form-label">
-                  Test Method
-                </label>
-                <input
-                  type="text"
-                  id="testMethod"
-                  name="testMethod"
-                  class="form-input"
-                  placeholder="Jest, Cypress, Playwright"
-                  maxlength="200"
-                  aria-describedby="testMethod-hint testMethod-error"
-                >
-                <span id="testMethod-hint" class="form-hint">
-                  Optional: Testing frameworks and tools (max 200 characters)
-                </span>
-                <span id="testMethod-error" class="form-error hidden" role="alert"></span>
-              </div>
-
-              <div class="form-group" style="margin-top: var(--space-8);">
-                <button
-                  type="submit"
-                  id="submit-btn"
-                  class="btn btn-primary btn-lg btn-block"
-                >
-                  <span id="submit-text">Create Project</span>
-                  <div id="submit-spinner" class="spinner hidden"></div>
-                </button>
-              </div>
-            </form>
-          </div>
+        <div class="toolbar">
+          <a href="create.html" class="btn btn-primary">+ New Project</a>
         </div>
+
+        <div id="session-list-container" class="session-list"></div>
       </div>
     </main>
   </div>
 
-  <script type="module" src="app.js"></script>
+  <!-- Delete Confirmation Modal -->
+  <div class="modal-backdrop" id="delete-modal" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h2 class="modal-title">Delete Project</h2>
+      </div>
+      <div class="modal-body">
+        <p style="margin: 0 0 var(--space-4);">
+          This action cannot be undone. To confirm deletion, type the project name below:
+        </p>
+        <div class="font-mono" style="font-size: var(--font-size-sm); color: var(--color-neutral-700); margin-bottom: var(--space-4); padding: var(--space-3); background: var(--color-neutral-100); border-radius: var(--radius-md);" id="delete-target-name"></div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="delete-confirm-input" class="form-label">Project name</label>
+          <input type="text" id="delete-confirm-input" class="form-input" placeholder="Type project name to confirm">
+          <span id="delete-error" class="form-error hidden"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="delete-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="delete-confirm-btn" disabled style="background-color: var(--color-error-600); border-color: var(--color-error-600);">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="index.js"></script>
 </body>
 </html>

@@ -74,12 +74,24 @@ function validateProjectName(value: string): string | null {
     return 'Project name is required';
   }
   
-  if (trimmed.length < 3) {
-    return 'Project name must be at least 3 characters';
+  if (trimmed.length <= 4) {
+    return 'Project name must be more than 4 characters';
   }
   
   if (trimmed.length > 100) {
     return 'Project name must be at most 100 characters';
+  }
+  
+  if (!/^[a-z]/.test(trimmed)) {
+    return 'Project name must start with a lowercase letter';
+  }
+  
+  if (!/[a-z0-9]$/.test(trimmed)) {
+    return 'Project name must end with a letter or number';
+  }
+  
+  if (!/^[a-z0-9_-]+$/.test(trimmed)) {
+    return 'Project name can only contain lowercase a-z, 0-9, underscore, and hyphen';
   }
   
   return null;
@@ -392,3 +404,4 @@ function initForm(): void {
 }
 
 document.addEventListener('DOMContentLoaded', initForm);
+export {}; // Make this file a module to avoid global scope collisions

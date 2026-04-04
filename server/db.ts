@@ -39,6 +39,9 @@ function runMigrations() {
   const migrations: Array<[string, string, string]> = [
     ['sessions', 'project_path', 'TEXT'],
     ['sessions', 'opencode_session_id', 'TEXT'],
+    ['sessions', 'opencode_url', 'TEXT'],
+    ['sessions', 'current_agent', 'TEXT'],
+    ['sessions', 'latest_message', 'TEXT'],
   ];
 
   for (const [table, column, type] of migrations) {

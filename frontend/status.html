@@ -25,8 +25,14 @@
             <div class="mb-4">
               <span class="badge" id="session-status">Connecting...</span>
             </div>
-            <div class="font-mono" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
+            <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
               Session ID: <span id="session-id">-</span>
+            </div>
+            <div class="font-mono" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
+              OpenCode URL: <a id="opencode-url" href="#" target="_blank" style="color: var(--color-primary-600);">-</a>
+            </div>
+            <div class="mt-4">
+              <a href="/" class="btn btn-secondary">← Back to Projects</a>
             </div>
           </div>
         </div>
@@ -44,6 +50,17 @@
               <div class="progress-bar">
                 <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-6">
+          <div class="card-header">
+            <h2 class="card-title">Latest Activity</h2>
+          </div>
+          <div class="card-body">
+            <div class="font-mono" style="font-size: var(--font-size-sm); color: var(--color-neutral-600); white-space: pre-wrap;" id="latest-message">
+              Waiting for updates...
             </div>
           </div>
         </div>
