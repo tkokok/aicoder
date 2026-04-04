@@ -42,16 +42,27 @@ For EACH stage:
 
 # HOW TO CALL SUB-AGENTS (CRITICAL)
 
-You MUST invoke sub-agents by writing their name with the `@` prefix directly in your response text, followed by your instructions. For example:
+You MUST invoke sub-agents using the **`task` tool**. This is the ONLY way to call a sub-agent in this system.
 
+For EACH stage, call the `task` tool with exactly these parameters:
+- `description`: a short 3-5 word summary of the stage
+- `prompt`: the full instructions you want the sub-agent to execute
+- `subagent_type`: the exact agent name for this stage (one of: clarify, design, task, dev, test, review, validate)
+
+Example for the clarify stage:
 ```
-@clarify
-Please clarify the following user requirements: ...
+task({
+  description: "Clarify requirements",
+  prompt: "Please clarify these requirements for a TodoList application...",
+  subagent_type: "clarify"
+})
 ```
 
-- DO NOT use the `task` tool, `bash` tool, `file` tool, or any other tools to do a sub-agent's work.
-- DO NOT describe what you will do — just write the `@agent_name` and the message.
-- After writing `@agent_name`, WAIT for the sub-agent's response before proceeding.
+- DO NOT simply write `@clarify` in plain text — that does NOTHING.
+- DO NOT use `bash`, `file`, `write`, or any other tool to do a sub-agent's work.
+- You MUST use the `task` tool for EVERY stage.
+- After the `task` tool returns, validate its output, save it as JSON, then call the next stage's `task` tool.
+- WAIT for each `task` tool to complete before calling the next one.
 
 # PIPELINE ORDER (STRICT, NO SKIP)
 
