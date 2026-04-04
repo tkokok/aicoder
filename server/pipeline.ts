@@ -65,6 +65,7 @@ export interface ExecutePipelineOptions {
   userInput: string;
   workspaceDir: string;
   projectDir: string;
+  client: OpenCodeClient;
   agentsDir?: string;
   model?: string;
 }
@@ -354,10 +355,8 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
   initPipelineStatus(sessionId);
   await writeStatusFile(sessionId, status, finalConfig.projectDir);
 
-  const { client } = await OpenCodeManager.getOrCreate(finalConfig.projectDir);
-
   try {
-    const result = await runMainAgentLoop(client, opencodeSessionId, options.userInput, sessionId, status, finalConfig);
+    const result = await runMainAgentLoop(options.client, opencodeSessionId, options.userInput, sessionId, status, finalConfig);
     updatePipelineStatus(sessionId, 'completed');
     return result;
   } catch (error) {
@@ -411,6 +410,15 @@ function buildMainAgentPrompt(
 
 ## User Requirements
 ${userInput}
+
+## How to Call Sub-Agents (CRITICAL)
+To invoke a sub-agent, write its name with the @ prefix directly in your response text, followed by your instructions. Example:
+
+@clarify
+Please clarify these requirements: ...
+
+- DO NOT use the task tool, bash tool, file tool, or any other tools to do a sub-agent's work.
+- After writing @agent_name, WAIT for the sub-agent to respond before proceeding.
 
 ## Reminder
 - Call exactly ONE sub-agent per stage, wait for its response, validate it, save the JSON, then move to the next stage.

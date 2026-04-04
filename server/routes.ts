@@ -399,6 +399,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         userInput,
         workspaceDir,
         projectDir,
+        client,
         model,
       }).then((result) => {
         request.log.info(`[routes] Pipeline completed for session ${sessionId}`);

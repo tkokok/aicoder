@@ -40,6 +40,19 @@ For EACH stage:
 
 ---
 
+# HOW TO CALL SUB-AGENTS (CRITICAL)
+
+You MUST invoke sub-agents by writing their name with the `@` prefix directly in your response text, followed by your instructions. For example:
+
+```
+@clarify
+Please clarify the following user requirements: ...
+```
+
+- DO NOT use the `task` tool, `bash` tool, `file` tool, or any other tools to do a sub-agent's work.
+- DO NOT describe what you will do — just write the `@agent_name` and the message.
+- After writing `@agent_name`, WAIT for the sub-agent's response before proceeding.
+
 # PIPELINE ORDER (STRICT, NO SKIP)
 
 1. @clarify
