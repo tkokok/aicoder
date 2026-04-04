@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db, transaction, generateId } from './db';
 import { validateSessionInput, SessionInput } from './validation';
 import { OpenCodeManager, OpenCodeClient, type SSEEvent } from './opencode';
-import { executePipeline } from './pipeline';
+import { executePipeline, readStatusFile, STAGE_ORDER } from './pipeline';
 import { mkdir, cp, access, rm, stat, readFile, writeFile } from 'fs/promises';
 import { join, dirname, basename } from 'path';
 import { homedir } from 'os';
@@ -605,8 +605,6 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
   );
 }
 
-const STAGE_ORDER = ['clarify', 'design', 'task', 'dev', 'test', 'review', 'validate'];
-
 function startProgressPolling(
   client: OpenCodeClient,
   sessionId: string,
@@ -619,18 +617,38 @@ function startProgressPolling(
   const poll = async () => {
     if (!running) return;
     try {
-      // Infer current stage from disk files
-      let completedStages = 0;
-      for (const stage of STAGE_ORDER) {
-        try {
-          await access(join(projectDir, `run-${sessionId}`, `${stage}.json`));
-          completedStages++;
-        } catch {
-          break;
+      // Infer current stage from status.yaml (authoritative) or fall back to JSON files
+      let currentStage: string;
+      const stagesSnapshot: Record<string, { status: string }> = {};
+      const statusFromYaml = await readStatusFile(sessionId, projectDir);
+      if (statusFromYaml) {
+        currentStage = statusFromYaml.pipeline.current_stage;
+        for (const stage of STAGE_ORDER) {
+          stagesSnapshot[stage] = { status: statusFromYaml.stages[stage].status };
+        }
+      } else {
+        let completedStages = 0;
+        for (const stage of STAGE_ORDER) {
+          try {
+            await access(join(projectDir, `run-${sessionId}`, `${stage}.json`));
+            completedStages++;
+          } catch {
+            break;
+          }
+        }
+        currentStage = completedStages >= STAGE_ORDER.length ? 'completed' : STAGE_ORDER[completedStages];
+        for (let i = 0; i < STAGE_ORDER.length; i++) {
+          const stage = STAGE_ORDER[i];
+          if (i < completedStages) {
+            stagesSnapshot[stage] = { status: 'completed' };
+          } else if (i === completedStages && currentStage !== 'completed') {
+            stagesSnapshot[stage] = { status: 'running' };
+          } else {
+            stagesSnapshot[stage] = { status: 'pending' };
+          }
         }
       }
-
-      const currentStage = completedStages >= STAGE_ORDER.length ? 'completed' : STAGE_ORDER[completedStages];
+      const completedStages = STAGE_ORDER.filter((s) => stagesSnapshot[s].status === 'completed').length;
       const progressPercent = Math.round((completedStages / STAGE_ORDER.length) * 100);
       const currentAgent = currentStage === 'completed' ? 'completed' : `${currentStage} agent`;
 
@@ -656,18 +674,6 @@ function startProgressPolling(
         // ignore
       }
 
-      // Build persisted stages snapshot from disk
-      const stagesSnapshot: Record<string, { status: string }> = {};
-      for (let i = 0; i < STAGE_ORDER.length; i++) {
-        const stage = STAGE_ORDER[i];
-        if (i < completedStages) {
-          stagesSnapshot[stage] = { status: 'completed' };
-        } else if (i === completedStages && currentStage !== 'completed') {
-          stagesSnapshot[stage] = { status: 'running' };
-        } else {
-          stagesSnapshot[stage] = { status: 'pending' };
-        }
-      }
       const stagesJson = JSON.stringify(stagesSnapshot);
 
       // Update DB

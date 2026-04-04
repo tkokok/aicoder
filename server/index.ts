@@ -6,6 +6,7 @@ import Fastify from 'fastify';
 import { registerRoutes } from './routes';
 import websocketPlugin from './websocket';
 import { OpenCodeManager } from './opencode';
+import { db } from './db';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -47,6 +48,19 @@ async function start() {
 
     const port = parseInt(process.env.PORT || '8080', 10);
     const host = process.env.HOST || '0.0.0.0';
+
+    // Mark any previously running sessions as failed (they were orphaned by a restart)
+    try {
+      const now = Date.now();
+      const result = db.prepare(
+        "UPDATE sessions SET status = 'failed', completed_at = ? WHERE status = 'running'"
+      ).run(now);
+      if (result.changes > 0) {
+        fastify.log.info(`Marked ${result.changes} orphaned running session(s) as failed`);
+      }
+    } catch (err) {
+      fastify.log.error({ err }, 'Failed to clean up orphaned sessions');
+    }
 
     await fastify.listen({ port, host });
     fastify.log.info(`Server listening on ${host}:${port}`);
