@@ -1,9 +1,9 @@
 /**
  * Pipeline Orchestration Loop
  *
- * Backend-driven stage execution that directly invokes sub-agents for each
- * pipeline stage.  On successful JSON output the pipeline automatically
- * advances to the next stage.
+ * Main Agent-driven orchestration.  The backend sends a single prompt to the
+ * Main Agent and waits for it to complete the entire 7-stage pipeline by
+ * calling sub-agents autonomously.
  */
 
 import { writeFile, readFile, mkdir } from 'fs/promises';
@@ -56,13 +56,6 @@ export interface PipelineConfig {
   workspaceDir: string;
   agentsDir: string;
   model?: string;
-}
-
-export interface PipelineContext {
-  sessionId: string;
-  userInput: string;
-  currentStage: PipelineStage;
-  stageOutputs: Record<string, unknown>;
 }
 
 export interface ExecutePipelineOptions {
@@ -357,23 +350,16 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
   initPipelineStatus(sessionId);
   await writeStatusFile(sessionId, status, finalConfig.workspaceDir);
 
-  const context: PipelineContext = {
-    sessionId,
-    userInput: options.userInput,
-    currentStage: 'clarify',
-    stageOutputs: {},
-  };
-
   const { client } = await OpenCodeManager.getOrCreate(finalConfig.workspaceDir);
 
   try {
-    const result = await runMainAgentLoop(client, opencodeSessionId, context, status, finalConfig);
+    const result = await runMainAgentLoop(client, opencodeSessionId, options.userInput, sessionId, status, finalConfig);
     updatePipelineStatus(sessionId, 'completed');
     return result;
   } catch (error) {
     updatePipelineStatus(sessionId, 'failed');
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    status = addError(status, context.currentStage, errorMessage, false);
+    status = addError(status, 'validate', errorMessage, false);
     await writeStatusFile(sessionId, status, finalConfig.workspaceDir);
     throw error;
   }
@@ -382,183 +368,189 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
 async function runMainAgentLoop(
   client: OpenCodeClient,
   opencodeSessionId: string,
-  context: PipelineContext,
+  userInput: string,
+  sessionId: string,
   status: PipelineStatus,
   config: PipelineConfig
 ): Promise<PipelineStatus> {
-  let currentStatus = status;
-  let attempts = 0;
+  const promptParts = buildMainAgentPrompt(userInput, sessionId, config.workspaceDir);
 
-  while (true) {
-    attempts++;
-    if (attempts > config.maxRetries) {
-      throw new Error(
-        `Max retries (${config.maxRetries}) exceeded for stage ${context.currentStage}`
-      );
-    }
+  const response = await sendPromptWithRetry(
+    client,
+    opencodeSessionId,
+    promptParts,
+    config
+  );
 
-    currentStatus = updateStageStatus(
-      currentStatus,
-      context.currentStage,
-      'running',
-      attempts
-    );
-    await writeStatusFile(context.sessionId, currentStatus, config.workspaceDir);
+  // Try to build a status object from the main agent's final JSON report.
+  const finalStatus = await buildStatusFromMainAgentResponse(sessionId, status, response, config.workspaceDir);
+  await writeStatusFile(sessionId, finalStatus, config.workspaceDir);
+  return finalStatus;
+}
 
+function buildMainAgentPrompt(
+  userInput: string,
+  sessionId: string,
+  workspaceDir: string
+): PromptPart[] {
+  return [
+    {
+      type: 'text',
+      text: `You are the AICoder Main Orchestrator Agent.
+
+## User Requirements
+${userInput}
+
+## Session Context
+- Session ID: ${sessionId}
+- Workspace Directory: ${workspaceDir}/run-${sessionId}/
+
+## Your Task
+Execute the complete 7-stage development pipeline by calling sub-agents in this order:
+1. @clarify
+2. @design
+3. @task
+4. @dev
+5. @test
+6. @review
+7. @validate
+
+Call each sub-agent with the full context it needs. After each sub-agent completes, save its JSON output to:
+${workspaceDir}/run-${sessionId}/<stage-name>.json
+
+When the entire pipeline is complete, output a single JSON object with:
+- \`finish\`: "stop"
+- \`pipeline_status\`: "completed" or "failed"
+- \`stages\`: an object with each stage's status and output
+- \`summary\`: brief summary
+- \`errors\`: array of any errors
+
+Do not ask the user for clarification between stages. Work autonomously.`,
+    },
+  ];
+}
+
+async function readStageOutputsFromDisk(
+  sessionId: string,
+  workspaceDir: string
+): Promise<Partial<Record<PipelineStage, { status: string; output?: unknown }>>> {
+  const result: Partial<Record<PipelineStage, { status: string; output?: unknown }>> = {};
+  const runDir = join(workspaceDir, `run-${sessionId}`);
+  for (const stage of STAGE_ORDER) {
     try {
-      const promptParts = buildPrompt(context);
-      const response = await sendPromptWithRetry(
-        client,
-        opencodeSessionId,
-        promptParts,
-        context.currentStage,
-        attempts,
-        config
-      );
-
-      // Any valid JSON object is treated as successful stage output.
-      currentStatus = updateStageStatus(
-        currentStatus,
-        context.currentStage,
-        'completed',
-        attempts,
-        JSON.stringify(response)
-      );
-      await writeStatusFile(context.sessionId, currentStatus, config.workspaceDir);
-      context.stageOutputs[context.currentStage] = response;
-
-      const nextStage = getNextStage(context.currentStage);
-      if (!nextStage) {
-        currentStatus = {
-          ...currentStatus,
-          pipeline: {
-            ...currentStatus.pipeline,
-            current_stage: 'completed',
-          },
-        };
-        await writeStatusFile(context.sessionId, currentStatus, config.workspaceDir);
-        return currentStatus;
-      }
-
-      context.currentStage = nextStage;
-      currentStatus = {
-        ...currentStatus,
-        pipeline: {
-          ...currentStatus.pipeline,
-          current_stage: nextStage,
-        },
+      const content = await readFile(join(runDir, `${stage}.json`), 'utf-8');
+      const parsed = JSON.parse(content);
+      result[stage] = {
+        status: 'completed',
+        output: parsed,
       };
-      await writeStatusFile(context.sessionId, currentStatus, config.workspaceDir);
-      attempts = 0;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const recoverable = isRecoverableError(error);
-
-      if (recoverable && attempts < config.maxRetries) {
-        currentStatus = addError(currentStatus, context.currentStage, errorMessage, true);
-        await writeStatusFile(context.sessionId, currentStatus, config.workspaceDir);
-        await delay(RETRY_DELAYS[Math.min(attempts - 1, RETRY_DELAYS.length - 1)]);
-        continue;
-      }
-
-      currentStatus = updateStageStatus(
-        currentStatus,
-        context.currentStage,
-        'failed',
-        attempts,
-        undefined,
-        errorMessage
-      );
-      currentStatus = addError(currentStatus, context.currentStage, errorMessage, false);
-      await writeStatusFile(context.sessionId, currentStatus, config.workspaceDir);
-      throw error;
+    } catch {
+      // File missing or unreadable — ignore.
     }
   }
+  return result;
+}
+
+async function buildStatusFromMainAgentResponse(
+  sessionId: string,
+  status: PipelineStatus,
+  response: Record<string, unknown>,
+  workspaceDir: string
+): Promise<PipelineStatus> {
+  const now = new Date().toISOString();
+  const pipelineStatus = response.pipeline_status === 'failed' ? 'failed' : 'completed';
+
+  // Merge on-disk stage outputs with whatever the Main Agent returned.
+  const diskStages = await readStageOutputsFromDisk(sessionId, workspaceDir);
+  const responseStages = (response.stages as Record<string, { status: string; output?: unknown }> | undefined) || {};
+  const mergedStages: Record<string, { status: string; output?: unknown }> = { ...diskStages, ...responseStages };
+
+  const updatedStages: Record<PipelineStage, StageResult> = { ...status.stages };
+
+  for (const stage of STAGE_ORDER) {
+    const stageData = mergedStages[stage];
+    if (stageData) {
+      updatedStages[stage] = {
+        status: (stageData.status as StageStatus) || 'completed',
+        attempts: 1,
+        output: stageData.output ? JSON.stringify(stageData.output) : undefined,
+      };
+    } else {
+      updatedStages[stage] = {
+        status: pipelineStatus === 'completed' ? 'completed' : 'pending',
+        attempts: 0,
+      };
+    }
+  }
+
+  const errors = (response.errors as Array<{ stage: string; message: string; fatal?: boolean }> | undefined) || [];
+  const mappedErrors = errors.map((e) => ({
+    stage: (e.stage as PipelineStage) || 'validate',
+    message: e.message,
+    timestamp: now,
+    recoverable: !e.fatal,
+  }));
+
+  return {
+    session_id: sessionId,
+    pipeline: {
+      current_stage: pipelineStatus === 'completed' ? 'completed' : 'failed',
+      started_at: status.pipeline.started_at,
+      updated_at: now,
+    },
+    stages: updatedStages,
+    errors: [...status.errors, ...mappedErrors],
+  };
 }
 
 // ============================================================================
 // Prompt & Communication
 // ============================================================================
 
-function buildPrompt(context: PipelineContext): PromptPart[] {
-  const parts: PromptPart[] = [];
-
-  parts.push({
-    type: 'text',
-    text: `## User Requirements\n\n${context.userInput}\n\n## Session Context\n- Session ID: ${context.sessionId}\n- Current Stage: ${context.currentStage}\n- Workspace Base: workspace/run-${context.sessionId}/\n`,
-  });
-
-  if (Object.keys(context.stageOutputs).length > 0) {
-    parts.push({
-      type: 'text',
-      text: '\n## Previous Stage Outputs\n\n',
-    });
-    for (const [stage, output] of Object.entries(context.stageOutputs)) {
-      parts.push({
-        type: 'text',
-        text: `### ${stage}\n\`\`\`json\n${JSON.stringify(output, null, 2)}\n\`\`\`\n\n`,
-      });
-    }
-  }
-
-  parts.push({
-    type: 'text',
-    text: `\nPlease complete the **${context.currentStage}** stage and output your response as a JSON object matching the schema defined in your instructions. Output ONLY the JSON — no extra commentary outside the JSON block.\n`,
-  });
-
-  return parts;
-}
-
 async function sendPromptWithRetry(
   client: OpenCodeClient,
   sessionId: string,
   parts: PromptPart[],
-  agentName: string,
-  attempt: number,
   config: PipelineConfig
 ): Promise<Record<string, unknown>> {
-  if (attempt === 1) {
-    // Capture baseline timestamp so we only look at messages created after
-    // our prompt was sent.
-    const messagesBefore = await client.getMessages(sessionId);
-    const baselineTime =
-      messagesBefore.length > 0
-        ? Math.max(...messagesBefore.map((m) => m.time.created))
-        : 0;
-
-    await client.sendMessage(sessionId, parts, { agent: agentName, model: config.model });
-    return await pollForResponse(client, sessionId, baselineTime);
-  }
-  try {
-    // On retry we do not have a clean baseline; poll from the beginning.
-    return await pollForResponse(client, sessionId, 0);
-  } catch (error) {
-    if (attempt < config.maxRetries && isRecoverableError(error)) {
-      await delay(RETRY_DELAYS[Math.min(attempt - 1, RETRY_DELAYS.length - 1)]);
-      return sendPromptWithRetry(client, sessionId, parts, agentName, attempt + 1, config);
+  let attempt = 0;
+  while (attempt < config.maxRetries) {
+    attempt++;
+    try {
+      if (attempt === 1) {
+        await client.sendMessage(sessionId, parts, { agent: 'main', model: config.model || 'zhipuai-coding-plan/glm-5.1' });
+      }
+      return await pollForResponse(client, sessionId);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (attempt < config.maxRetries && isRecoverableError(error)) {
+        await delay(RETRY_DELAYS[Math.min(attempt - 1, RETRY_DELAYS.length - 1)]);
+        continue;
+      }
+      throw new Error(`Main Agent failed: ${errorMessage}`);
     }
-    throw error;
   }
+  throw new Error('Max retries exceeded for Main Agent');
 }
 
 async function pollForResponse(
   client: OpenCodeClient,
   sessionId: string,
-  baselineTime: number,
-  maxAttempts = 300,
-  pollIntervalMs = 3000
+  maxAttempts = 600,
+  pollIntervalMs = 5000
 ): Promise<Record<string, unknown>> {
   for (let i = 0; i < maxAttempts; i++) {
     const messages = await client.getMessages(sessionId);
-    const newAssistantMessages = messages.filter(
-      (m) => m.role === 'assistant' && m.time.created > baselineTime
-    );
+    const assistantMessages = messages.filter((m) => m.role === 'assistant');
 
-    for (const msg of newAssistantMessages) {
+    // Look for the most recent assistant message with finish=stop.
+    for (let j = assistantMessages.length - 1; j >= 0; j--) {
+      const msg = assistantMessages[j];
       if (msg.finish === 'stop') {
-        const textParts =
-          msg.parts?.filter((p) => p.type === 'text' && p.text) || [];
+        const textParts = msg.parts?.filter((p) => p.type === 'text' && p.text) || [];
+        let rawText = '';
         for (const part of textParts) {
+          rawText += part.text! + '\n';
           const extracted = extractJSON(part.text!);
           if (
             extracted &&
@@ -568,42 +560,43 @@ async function pollForResponse(
             return extracted as Record<string, unknown>;
           }
         }
+        // If finish=stop was found but JSON could not be parsed, don't loop
+        // forever waiting for another message. Return a fallback so the
+        // backend can recover using on-disk stage outputs.
+        return {
+          finish: 'stop',
+          pipeline_status: 'completed',
+          _rawResponse: rawText.trim(),
+        };
       }
     }
     await delay(pollIntervalMs);
   }
-  throw new Error('Timeout waiting for agent response');
+  throw new Error('Timeout waiting for Main Agent response');
 }
 
 function extractJSON(text: string): unknown {
-  // 1. fenced code block
-  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-  if (codeBlockMatch) {
+  // Try all code blocks, starting from the last one (most likely final JSON).
+  const codeBlockMatches = [...text.matchAll(/```(?:json)?\s*\n?([\s\S]*?)```/g)];
+  for (let i = codeBlockMatches.length - 1; i >= 0; i--) {
     try {
-      return JSON.parse(codeBlockMatch[1].trim());
+      return JSON.parse(codeBlockMatches[i][1].trim());
     } catch {}
   }
-  // 2. first top-level object
-  const braceMatch = text.match(/\{[\s\S]*\}/);
-  if (braceMatch) {
+
+  // Try to find the last balanced brace block.
+  const braceMatches = [...text.matchAll(/\{[\s\S]*\}/g)];
+  for (let i = braceMatches.length - 1; i >= 0; i--) {
     try {
-      return JSON.parse(braceMatch[0]);
+      return JSON.parse(braceMatches[i][0]);
     } catch {}
   }
-  // 3. whole text
+
   try {
     return JSON.parse(text);
   } catch {
     return null;
   }
-}
-
-function getNextStage(currentStage: PipelineStage): PipelineStage | null {
-  const currentIndex = STAGE_ORDER.indexOf(currentStage);
-  if (currentIndex === -1 || currentIndex >= STAGE_ORDER.length - 1) {
-    return null;
-  }
-  return STAGE_ORDER[currentIndex + 1];
 }
 
 function isRecoverableError(error: unknown): boolean {

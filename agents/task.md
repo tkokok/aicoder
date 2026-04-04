@@ -1,5 +1,6 @@
 ---
 mode: subagent
+permission: allow
 ---
 
 # Role: Task Planner
