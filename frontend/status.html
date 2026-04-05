@@ -6,185 +6,323 @@
   <title>AICoder - Pipeline Status</title>
   <link rel="stylesheet" href="styles.css">
   <style>
-    .step-track {
-      position: relative;
+    :root {
+      --bg: #0b0c0f;
+      --surface: #12131a;
+      --surface-2: #1a1c24;
+      --border: #2a2d38;
+      --text: #e8eaf0;
+      --text-secondary: #9aa0ae;
+      --text-muted: #5e6470;
+      --accent: #60a5fa;
+      --accent-2: #22d3ee;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --error: #f87171;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      font-size: 14px;
+      line-height: 1.45;
+      margin: 0;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 16px 20px 40px;
+    }
+    header.topbar {
       display: flex;
+      align-items: center;
       justify-content: space-between;
-      margin-top: var(--space-4);
+      padding: 12px 0 18px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
     }
-    .step-track::before {
-      content: '';
-      position: absolute;
-      top: 10px;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: var(--color-neutral-200);
-      z-index: 0;
+    .topbar h1 {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0;
+      letter-spacing: 0.2px;
     }
-    .progress-step {
-      position: relative;
-      z-index: 1;
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-      gap: var(--space-2);
+    .topbar .back {
+      font-size: 13px;
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: var(--surface);
     }
-    .step-dot {
-      width: 22px;
-      height: 22px;
-      border-radius: var(--radius-full);
-      background: var(--color-neutral-0);
-      border: 2px solid var(--color-neutral-300);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      font-weight: var(--font-weight-bold);
-      color: var(--color-neutral-500);
-      transition: all var(--transition-fast);
+    .topbar .back:hover { color: var(--text); border-color: var(--text-muted); }
+
+    .info-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 16px;
+      font-size: 13px;
     }
-    .step-dot.pending {
-      background: var(--color-neutral-0);
-      border-color: var(--color-neutral-300);
-      color: var(--color-neutral-500);
+    .info-table th, .info-table td {
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
     }
-    .step-dot.running {
-      background: var(--color-primary-500);
-      border-color: var(--color-primary-500);
-      color: var(--color-neutral-0);
-      animation: pulse 2s infinite;
-    }
-    .step-dot.completed {
-      background: var(--color-success-500);
-      border-color: var(--color-success-500);
-      color: var(--color-neutral-0);
-    }
-    .step-dot.failed {
-      background: var(--color-error-500);
-      border-color: var(--color-error-500);
-      color: var(--color-neutral-0);
-    }
-    .step-label {
-      font-size: var(--font-size-xs);
-      color: var(--color-neutral-500);
-      text-transform: capitalize;
+    .info-table th {
+      width: 140px;
+      color: var(--text-muted);
+      font-weight: 500;
       white-space: nowrap;
+      background: rgba(255,255,255,0.02);
     }
-    @media (max-width: 640px) {
-      .step-label {
-        display: none;
-      }
+    .info-table td {
+      color: var(--text-secondary);
+      word-break: break-all;
     }
+    .info-table tr:last-child th, .info-table tr:last-child td { border-bottom: none; }
+    .info-table td > span { color: var(--text); }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text-secondary);
+    }
+    .badge.running { color: #0ea5e9; border-color: rgba(14,165,233,0.35); background: rgba(14,165,233,0.12); }
+    .badge.completed { color: var(--success); border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.12); }
+    .badge.failed { color: var(--error); border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.12); }
+    .badge.pending { color: var(--warning); border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.12); }
+
+    .copy-btn {
+      margin-left: 8px;
+      padding: 2px 8px;
+      font-size: 11px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text-secondary);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .copy-btn:hover { border-color: var(--text-muted); color: var(--text); }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.35fr;
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 980px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+    .panel-title {
+      font-size: 14px;
+      font-weight: 700;
+      margin: 0;
+      color: var(--text);
+    }
+    .panel-body { padding: 14px; }
+
+    .progress-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .progress-bar {
+      height: 10px;
+      background: var(--surface-2);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    .step-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    .step-row .muted { color: var(--text-muted); }
+    .step-row .value { font-weight: 600; color: var(--text); }
+
+    .alert-error {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(248,113,113,0.10);
+      border: 1px solid rgba(248,113,113,0.35);
+      color: #fecaca;
+      font-size: 13px;
+    }
+    .alert-error strong { color: #fff; }
+
+    .activity-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .activity-toggle {
+      font-size: 12px;
+      padding: 5px 10px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text-secondary);
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .activity-toggle:hover { color: var(--text); border-color: var(--text-muted); }
+    .activity-box {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      min-height: 140px;
+      max-height: 520px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: #c9cdd8;
+      white-space: pre-wrap;
+    }
+    .activity-item {
+      padding: 8px 0;
+      border-bottom: 1px dashed var(--border);
+    }
+    .activity-item:last-child { border-bottom: none; }
+
+    .error-card {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: rgba(248,113,113,0.10);
+      border: 1px solid rgba(248,113,113,0.35);
+      color: #fecaca;
+    }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <div class="page">
-    <header class="page-header">
-      <div class="container">
-        <h1 class="page-title">Pipeline Status</h1>
-        <p class="page-subtitle">Real-time progress tracking</p>
-      </div>
+  <div class="container">
+    <header class="topbar">
+      <h1>Pipeline Status</h1>
+      <a href="/" class="back">← Back to Projects</a>
     </header>
 
-    <main class="page-content">
-      <div class="container">
-        <div class="card mb-6">
-          <div class="card-header">
-            <h2 class="card-title">Session Information</h2>
-          </div>
-          <div class="card-body">
-            <div class="mb-4">
-              <span class="badge" id="session-status">Connecting...</span>
-            </div>
-            <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
-              Session ID: <span id="session-id">-</span>
-            </div>
-            <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
-              OpenCode URL: <a id="opencode-url" href="#" target="_blank" style="color: var(--color-primary-600);">-</a>
-            </div>
-            <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
-              Main Agent: <a id="opencode-session-url" href="#" target="_blank" style="color: var(--color-primary-600);">-</a>
-            </div>
-            <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500); display: flex; align-items: center; gap: var(--space-2);">
-              <span>Project Path: <span id="project-path">-</span></span>
-              <button type="button" id="copy-project-path-btn" class="btn btn-secondary" style="padding: var(--space-1) var(--space-2); font-size: var(--font-size-xs);">Copy</button>
-            </div>
-            <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500); display: flex; align-items: center; gap: var(--space-2);">
-              <span>Workspace Path: <span id="workspace-path">-</span></span>
-              <button type="button" id="copy-path-btn" class="btn btn-secondary" style="padding: var(--space-1) var(--space-2); font-size: var(--font-size-xs);">Copy</button>
-            </div>
-            <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
-              Repo Name: <span id="repo-name">-</span>
-            </div>
-            <div class="mt-4">
-              <a href="/" class="btn btn-secondary">← Back to Projects</a>
-            </div>
-          </div>
-        </div>
+    <table class="info-table">
+      <tbody>
+        <tr>
+          <th>Status</th>
+          <td><span id="session-status" class="badge pending">Connecting...</span></td>
+        </tr>
+        <tr>
+          <th>Session ID</th>
+          <td><span id="session-id">-</span></td>
+        </tr>
+        <tr>
+          <th>OpenCode URL</th>
+          <td><a id="opencode-url" href="#" target="_blank">-</a></td>
+        </tr>
+        <tr>
+          <th>Main Agent</th>
+          <td><a id="opencode-session-url" href="#" target="_blank">-</a></td>
+        </tr>
+        <tr>
+          <th>Project Path</th>
+          <td>
+            <span id="project-path">-</span>
+            <button type="button" id="copy-project-path-btn" class="copy-btn">Copy</button>
+          </td>
+        </tr>
+        <tr>
+          <th>Workspace Path</th>
+          <td>
+            <span id="workspace-path">-</span>
+            <button type="button" id="copy-path-btn" class="copy-btn">Copy</button>
+          </td>
+        </tr>
+        <tr>
+          <th>Repo Name</th>
+          <td><span id="repo-name">-</span></td>
+        </tr>
+      </tbody>
+    </table>
 
-        <div class="card mb-6">
-          <div class="card-header">
-            <h2 class="card-title">Pipeline Status</h2>
-          </div>
-          <div class="card-body">
-            <div class="progress-container">
-              <div class="progress-label">
-                <span id="progress-stage">Initializing...</span>
-                <span id="progress-percent">0%</span>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
-              </div>
-            </div>
-            <div style="margin-top: var(--space-4); display: flex; align-items: center; gap: var(--space-3);">
-              <span style="color: var(--color-neutral-500);">Current Step:</span>
-              <span id="current-step" style="font-weight: var(--font-weight-semibold);">-</span>
-              <span class="badge" id="pipeline-status-badge">Pending</span>
-            </div>
-            <div id="pipeline-error" class="alert alert-error hidden" style="margin-top: var(--space-4);">
-              <h4 class="alert-title">Pipeline Failed</h4>
-              <p id="pipeline-error-text"></p>
-            </div>
-          </div>
+    <div class="main-grid">
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Pipeline</h2>
+          <span id="progress-percent" class="badge">0%</span>
         </div>
-
-        <div class="card mb-6">
-          <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
-            <h2 class="card-title" id="activity-title">Latest Activity</h2>
-            <button
-              type="button"
-              id="toggle-history-btn"
-              class="btn btn-secondary"
-              style="padding: var(--space-1) var(--space-3); font-size: var(--font-size-sm);"
-              aria-expanded="false"
-            >
-              Show Full History
-            </button>
+        <div class="panel-body">
+          <div class="progress-top">
+            <span id="progress-stage" class="muted">Initializing...</span>
           </div>
-          <div class="card-body">
-            <div
-              class="font-mono"
-              style="font-size: var(--font-size-sm); color: var(--color-neutral-600); white-space: pre-wrap;"
-              id="activity-content"
-            >
-              Waiting for updates...
-            </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
           </div>
-        </div>
-
-        <div class="card mt-6 hidden" id="error-card">
-          <div class="card-header" style="border-bottom-color: var(--color-error-500);">
-            <h2 class="card-title" style="color: var(--color-error-600);">Error</h2>
+          <div class="step-row">
+            <span class="muted">Current Step:</span>
+            <span id="current-step" class="value">-</span>
+            <span id="pipeline-status-badge" class="badge pending">Pending</span>
           </div>
-          <div class="card-body">
-            <p id="error-message" style="color: var(--color-error-600);"></p>
+          <div id="pipeline-error" class="alert-error hidden">
+            <strong>Pipeline Failed</strong>
+            <p id="pipeline-error-text" style="margin: 6px 0 0;"></p>
           </div>
         </div>
       </div>
-    </main>
+
+      <div class="panel">
+        <div class="panel-header activity-header">
+          <h2 class="panel-title" id="activity-title">Latest Activity</h2>
+          <button type="button" id="toggle-history-btn" class="activity-toggle" aria-expanded="false">Show Full History</button>
+        </div>
+        <div class="panel-body">
+          <div class="activity-box" id="activity-content">Waiting for updates...</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="error-card" class="error-card hidden">
+      <strong style="color:#fff;">Connection Error</strong>
+      <p id="error-message" style="margin: 6px 0 0;"></p>
+    </div>
   </div>
 
   <script type="module" src="status.js"></script>

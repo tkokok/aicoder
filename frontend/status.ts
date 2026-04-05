@@ -377,7 +377,7 @@ class StatusPage {
       contentEl.innerHTML = '';
       for (const msg of this.currentMessages) {
         const item = document.createElement('div');
-        item.style.cssText = 'padding: var(--space-3); border-bottom: 1px solid var(--color-neutral-100); white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--font-size-sm); color: var(--color-neutral-700);';
+        item.className = 'activity-item';
         item.textContent = msg;
         contentEl.appendChild(item);
       }
