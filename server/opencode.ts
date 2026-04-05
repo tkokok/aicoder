@@ -321,6 +321,27 @@ export class OpenCodeClient {
     return this.request<SessionInfo>('GET', `/session/${sessionId}`);
   }
 
+  async archiveSession(sessionId: string): Promise<void> {
+    log.info('client', `Archiving session: ${sessionId}`);
+    try {
+      await this.request<SessionInfo>('PATCH', `/session/${sessionId}`, {
+        time: { archived: Date.now() },
+      });
+      log.info('client', `Session archived: ${sessionId}`);
+    } catch (error) {
+      log.error('client', `Failed to archive session ${sessionId}: ${error}`);
+    }
+  }
+
+  forkDirectory(newDirectory: string): OpenCodeClient {
+    return new OpenCodeClient({
+      baseUrl: this.baseUrl,
+      directory: newDirectory,
+      extraHeaders: this.extraHeaders,
+      auth: this.auth || undefined,
+    });
+  }
+
   async sendMessage(
     sessionId: string,
     parts: PromptPart[],

@@ -501,10 +501,14 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
           const subagentPrompt = buildSubagentPrompt(stage, userInput, sessionId, finalConfig, previousOutputs);
 
           // Step 1: Backend directly creates the subagent session and sends the prompt.
+          // We keep it in the same directory so its messages are accessible under the
+          // project directory, but archive it immediately so it doesn't clutter the
+          // OpenCode session list.
           const t2 = Date.now();
           const subagentSession = await options.client.createSession({
             title: `${stage} subagent for ${sessionId}`,
           });
+          await options.client.archiveSession(subagentSession.id);
           const t3 = Date.now();
           await options.client.sendMessage(
             subagentSession.id,
@@ -572,6 +576,13 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
           }
 
           if (stageResult.status === 'completed') {
+            // Fire-and-forget a progress note to the parent session so the
+            // OpenCode UI isn't completely empty.
+            options.client.sendMessage(
+              options.opencodeSessionId,
+              [{ type: 'text', text: `Stage "${stage}" completed (subagent: ${subagentSessionId}).` }],
+              { agent: 'AICoder', model: finalConfig.model }
+            ).catch(() => {});
             break;
           }
 
