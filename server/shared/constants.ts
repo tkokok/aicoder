@@ -5,9 +5,9 @@ export const ALL_STAGES: PipelineStage[] = [
 ];
 
 const STAGE_ORDERS: Record<PipelineMode, PipelineStage[]> = {
-  full: ['clarify', 'design', 'task', 'dev', 'test', 'review', 'validate'],
-  standard: ['clarify', 'design', 'dev', 'review'],
-  simple: ['clarify', 'dev'],
+  full: ['clarify', 'design', 'dev', 'test', 'review', 'validate'],
+  standard: ['clarify', 'design', 'dev', 'test', 'review'],
+  simple: ['clarify', 'design', 'dev'],
 };
 
 export function getStageOrder(mode: PipelineMode): PipelineStage[] {
