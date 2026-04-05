@@ -4,6 +4,7 @@ import type {
   PipelineCompleteCallback,
   PipelineStatusUpdateCallback,
   SSEForwardCallback,
+  MessageUpdateCallback,
 } from '../shared/types.js';
 import { db, transaction } from '../db.js';
 import { createComponentLogger } from '../logger.js';
@@ -114,6 +115,39 @@ export async function registerCallbackRoutes(fastify: FastifyInstance): Promise<
       return reply.send({ ok: true });
     } catch (error) {
       log.error('Failed to process pipeline-status callback', error, { session_id: event.sessionId });
+      return reply.status(500).send({ error: 'Internal error' });
+    }
+  });
+
+  fastify.post('/api/internal/message-update', async (request, reply) => {
+    const event = request.body as MessageUpdateCallback;
+    try {
+      db.prepare(
+        `UPDATE sessions SET latest_message = ?, messages_json = ? WHERE id = ?`
+      ).run(event.latestMessage, event.messagesJson, event.sessionId);
+
+      const row = db.prepare('SELECT current_agent, stages_json FROM sessions WHERE id = ?').get(event.sessionId) as { current_agent?: string; stages_json?: string } | undefined;
+      let stages: Record<string, { status?: string }> = {};
+      if (row?.stages_json) {
+        try {
+          stages = JSON.parse(row.stages_json);
+        } catch {}
+      }
+
+      (fastify as any).broadcastEvent?.({
+        type: 'progress',
+        properties: {
+          session_id: event.sessionId,
+          current_agent: row?.current_agent,
+          latest_message: event.latestMessage,
+          messages_json: event.messagesJson,
+          stages,
+        },
+      });
+
+      return reply.send({ ok: true });
+    } catch (error) {
+      log.error('Failed to process message-update callback', error, { session_id: event.sessionId });
       return reply.status(500).send({ error: 'Internal error' });
     }
   });

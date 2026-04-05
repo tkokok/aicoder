@@ -29,7 +29,7 @@ import {
 import { buildPipelinePlaybook } from '../prompts/pipeline-dispatch.js';
 import { createSessionLogger, logger } from '../logger.js';
 import { LocalFileSystem } from './filesystem.js';
-import { notifyStageComplete, notifyPipelineComplete, notifyPipelineStatus } from './callback.js';
+import { notifyStageComplete, notifyPipelineComplete, notifyPipelineStatus, notifyMessageUpdate } from './callback.js';
 
 // ============================================================================
 // Types
@@ -338,12 +338,17 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
   let lastProgressMs = Date.now();
   let lastCompletedCount = 0;
   let timeoutTimer: ReturnType<typeof setInterval> | null = null;
+  let messagePollTimer: ReturnType<typeof setInterval> | null = null;
   let stopWatcher: (() => void) | null = null;
 
   const cleanup = () => {
     if (timeoutTimer) {
       clearInterval(timeoutTimer);
       timeoutTimer = null;
+    }
+    if (messagePollTimer) {
+      clearInterval(messagePollTimer);
+      messagePollTimer = null;
     }
     if (stopWatcher) {
       stopWatcher();
@@ -478,6 +483,55 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
       finishPipeline('failed', timeoutError).catch(() => {});
     }
   }, 10000);
+
+  // Message polling to forward activity to control plane
+  const MAX_STORED_MESSAGES = 1000;
+  const accumulatedMessages: string[] = [];
+  const seenMessageTexts = new Set<string>();
+  let lastMessagesJson = '';
+
+  const pollMessages = async () => {
+    if (completed) return;
+    try {
+      const rawMessages = await options.client.getMessages(opencodeSessionId);
+      let hasNew = false;
+      for (const msg of rawMessages) {
+        const textParts = msg.parts
+          ?.filter((p) => (p.type === 'text' || p.type === 'reasoning') && p.text)
+          .map((p) => p.text as string);
+        const joined = textParts?.join('\n').trim() || '';
+        if (joined && !seenMessageTexts.has(joined)) {
+          seenMessageTexts.add(joined);
+          accumulatedMessages.push(joined);
+          if (accumulatedMessages.length > MAX_STORED_MESSAGES) {
+            const removed = accumulatedMessages.shift();
+            if (removed) seenMessageTexts.delete(removed);
+          }
+          hasNew = true;
+        }
+      }
+      const messagesJson = JSON.stringify(accumulatedMessages);
+      if (hasNew || messagesJson !== lastMessagesJson) {
+        lastMessagesJson = messagesJson;
+        const latestMessage = accumulatedMessages.length > 0
+          ? accumulatedMessages[accumulatedMessages.length - 1].slice(0, 800)
+          : '';
+        await notifyMessageUpdate({
+          sessionId,
+          messages: rawMessages,
+          latestMessage,
+          messagesJson,
+          timestamp: Date.now(),
+        });
+      }
+    } catch {
+      // ignore message polling errors
+    }
+  };
+
+  messagePollTimer = setInterval(() => {
+    pollMessages().catch(() => {});
+  }, 3000);
 
   // Send playbook
   try {

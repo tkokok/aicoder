@@ -3,6 +3,7 @@ import type {
   PipelineCompleteCallback,
   PipelineStatusUpdateCallback,
   SSEForwardCallback,
+  MessageUpdateCallback,
 } from '../shared/types.js';
 import { createComponentLogger } from '../logger.js';
 
@@ -41,6 +42,10 @@ export async function notifyPipelineComplete(event: PipelineCompleteCallback): P
 
 export async function notifyPipelineStatus(event: PipelineStatusUpdateCallback): Promise<void> {
   await notifyControlPlane('/api/internal/pipeline-status', event);
+}
+
+export async function notifyMessageUpdate(event: MessageUpdateCallback): Promise<void> {
+  await notifyControlPlane('/api/internal/message-update', event);
 }
 
 export async function notifySSEEvent(event: SSEForwardCallback): Promise<void> {

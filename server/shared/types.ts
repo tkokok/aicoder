@@ -183,5 +183,7 @@ export interface SSEForwardCallback {
 export interface MessageUpdateCallback {
   sessionId: string;
   messages: MessageInfo[];
+  latestMessage: string;
+  messagesJson: string;
   timestamp: number;
 }
