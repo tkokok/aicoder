@@ -4,304 +4,383 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AICoder - Create New Project</title>
-  <link rel="stylesheet" href="styles.css">
+  <style>
+    :root {
+      --bg: #0b0c0f;
+      --surface: #12131a;
+      --surface-2: #1a1c24;
+      --border: #2a2d38;
+      --text: #e8eaf0;
+      --text-secondary: #9aa0ae;
+      --text-muted: #5e6470;
+      --accent: #60a5fa;
+      --accent-2: #22d3ee;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --error: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      font-size: 14px;
+      line-height: 1.45;
+      margin: 0;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 16px 20px 40px;
+    }
+    header.topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0 18px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+    .topbar h1 {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0;
+      letter-spacing: 0.2px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 7px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .btn:hover { border-color: var(--text-muted); }
+    .btn-primary { background: linear-gradient(180deg, rgba(96,165,250,0.15), rgba(96,165,250,0.08)); border-color: rgba(96,165,250,0.45); color: #bfdbfe; }
+    .btn-primary:hover { border-color: rgba(96,165,250,0.7); }
+    .btn-secondary { color: var(--text-secondary); }
+    .btn-danger { background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.45); color: #fecaca; }
+    .btn-danger:hover { border-color: rgba(248,113,113,0.7); }
+    .btn-lg { padding: 10px 14px; font-size: 14px; }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+    .panel-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin: 0;
+    }
+    .panel-body { padding: 16px; }
+
+    .alert-error {
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(248,113,113,0.10);
+      border: 1px solid rgba(248,113,113,0.35);
+      color: #fecaca;
+      font-size: 13px;
+      margin-bottom: 14px;
+    }
+    .alert-error h4 { margin: 0 0 6px; font-size: 13px; }
+    .alert-list { margin: 0; padding-left: 18px; }
+    .alert-list li { margin: 3px 0; }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 16px;
+    }
+    @media (max-width: 720px) {
+      .form-grid { grid-template-columns: 1fr; }
+    }
+    .form-group { display: flex; flex-direction: column; }
+    .form-group.full { grid-column: 1 / -1; }
+    .form-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+    .form-label-required::after { content: ' *'; color: var(--error); }
+    .form-input, .form-textarea, .form-select {
+      padding: 8px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+    .form-input:focus, .form-textarea:focus, .form-select:focus { border-color: var(--accent); }
+    .form-textarea { min-height: 90px; resize: vertical; font-family: inherit; }
+    .form-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 5px;
+    }
+    .form-error {
+      font-size: 11px;
+      color: var(--error);
+      margin-top: 5px;
+    }
+    .form-radio-group { display: flex; gap: 14px; flex-wrap: wrap; }
+    .form-radio {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .form-radio input { accent-color: var(--accent); }
+
+    .details-box {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      overflow: hidden;
+    }
+    .details-summary {
+      padding: 10px 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      background: rgba(255,255,255,0.02);
+    }
+    .details-body { padding: 12px; }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hidden { display: none !important; }
+  </style>
 </head>
 <body>
-  <div class="page">
-    <header class="page-header">
-      <div class="container">
-        <h1 class="page-title">AICoder</h1>
-        <p class="page-subtitle">AI-Powered Coding Agent</p>
-      </div>
+  <div class="container">
+    <header class="topbar">
+      <h1>AICoder</h1>
+      <a href="index.html" class="btn btn-secondary">← Back to Home</a>
     </header>
 
-    <main class="page-content">
-      <div class="container">
-        <div class="card" style="max-width: 800px; margin: 0 auto;">
-          <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
-            <h2 class="card-title">Create New Project</h2>
-            <a href="index.html" class="btn btn-secondary" style="text-decoration: none;">← Back to Home</a>
-          </div>
-          
-          <div class="card-body">
-            <div id="error-container" class="alert alert-error hidden" role="alert">
-              <h4 class="alert-title">Validation Errors</h4>
-              <ul class="alert-list" id="error-list"></ul>
+    <div class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title">Create New Project</h2>
+      </div>
+      <div class="panel-body">
+        <div id="error-container" class="alert alert-error hidden" role="alert">
+          <h4 class="alert-title">Validation Errors</h4>
+          <ul class="alert-list" id="error-list"></ul>
+        </div>
+
+        <form id="project-form">
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label form-label-required">Project Mode</label>
+              <div class="form-radio-group">
+                <label class="form-radio">
+                  <input type="radio" name="mode" value="new" id="mode-new" checked>
+                  <span>New Project</span>
+                </label>
+                <label class="form-radio">
+                  <input type="radio" name="mode" value="existing" id="mode-existing">
+                  <span>Existing Project</span>
+                </label>
+              </div>
+              <span id="mode-hint" class="form-hint">
+                New projects are created under ~/.aicoder/projects/. Existing projects use the path you provide.
+              </span>
             </div>
 
-            <form id="project-form" class="form">
-              <div class="form-group">
-                <label class="form-label form-label-required">Project Mode</label>
-                <div class="form-radio-group" style="display: flex; gap: var(--space-4); margin-top: var(--space-2);">
-                  <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
-                    <input type="radio" name="mode" value="new" id="mode-new" checked>
-                    <span>New Project</span>
-                  </label>
-                  <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
-                    <input type="radio" name="mode" value="existing" id="mode-existing">
-                    <span>Existing Project</span>
-                  </label>
-                </div>
-                <span id="mode-hint" class="form-hint">
-                  New projects are created under ~/.aicoder/projects/. Existing projects use the path you provide.
-                </span>
-              </div>
-
-              <div class="form-group">
-                <label class="form-label form-label-required">Pipeline Mode</label>
-                <div class="form-radio-group" style="display: flex; gap: var(--space-4); margin-top: var(--space-2); flex-wrap: wrap;">
-                  <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
-                    <input type="radio" name="pipelineMode" value="standard" id="pipeline-mode-standard" checked>
-                    <span>Standard (clarify → design → dev → review)</span>
-                  </label>
-                  <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
-                    <input type="radio" name="pipelineMode" value="simple" id="pipeline-mode-simple">
-                    <span>Simple (clarify → dev)</span>
-                  </label>
-                  <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
-                    <input type="radio" name="pipelineMode" value="full" id="pipeline-mode-full">
-                    <span>Full (7 stages)</span>
-                  </label>
-                </div>
-                <span id="pipelineMode-hint" class="form-hint">
-                  Choose how many pipeline stages to run. Simple mode is best for quick demos.
-                </span>
-              </div>
-
-              <div class="form-group" style="display: flex; gap: var(--space-4); align-items: flex-end;">
-                <div style="flex: 1;">
-                  <label for="projectName" class="form-label form-label-required">
-                    Project Name
-                  </label>
-                  <input
-                    type="text"
-                    id="projectName"
-                    name="projectName"
-                    class="form-input"
-                    placeholder="my-awesome-project"
-                    required
-                    minlength="5"
-                    maxlength="100"
-                    aria-describedby="projectName-hint projectName-error"
-                  >
-                  <span id="projectName-hint" class="form-hint">
-                    Lowercase letters, numbers, underscore, hyphen. Must start with a letter and end with a letter or number. Min 5 characters.
-                  </span>
-                  <span id="projectName-error" class="form-error hidden" role="alert"></span>
-                </div>
-                <button
-                  type="button"
-                  id="demo-btn"
-                  class="btn btn-secondary"
-                  style="white-space: nowrap;"
-                >
-                  Create Todo Demo
-                </button>
-              </div>
-
-              <div class="form-group hidden" id="existingPath-group">
-                <label for="existingPath" class="form-label form-label-required">
-                  Existing Project Path
+            <div class="form-group">
+              <label class="form-label form-label-required">Pipeline Mode</label>
+              <div class="form-radio-group">
+                <label class="form-radio">
+                  <input type="radio" name="pipelineMode" value="standard" id="pipeline-mode-standard" checked>
+                  <span>Standard</span>
                 </label>
+                <label class="form-radio">
+                  <input type="radio" name="pipelineMode" value="simple" id="pipeline-mode-simple">
+                  <span>Simple</span>
+                </label>
+                <label class="form-radio">
+                  <input type="radio" name="pipelineMode" value="full" id="pipeline-mode-full">
+                  <span>Full</span>
+                </label>
+              </div>
+              <span id="pipelineMode-hint" class="form-hint">
+                Standard: clarify → design → dev → review. Simple: clarify → dev. Full: 7 stages.
+              </span>
+            </div>
+
+            <div class="form-group full" style="display: flex; gap: 12px; align-items: flex-end;">
+              <div style="flex: 1; display: flex; flex-direction: column;">
+                <label for="projectName" class="form-label form-label-required">Project Name</label>
                 <input
                   type="text"
-                  id="existingPath"
-                  name="existingPath"
+                  id="projectName"
+                  name="projectName"
                   class="form-input"
-                  placeholder="/absolute/path/to/your/project"
-                  aria-describedby="existingPath-hint existingPath-error"
-                >
-                <span id="existingPath-hint" class="form-hint">
-                  Absolute path to an existing git repository. AICoder will create a git worktree under the managed project directory so your original repo stays untouched.
-                </span>
-                <span id="existingPath-error" class="form-error hidden" role="alert"></span>
-              </div>
-
-              <div class="form-group">
-                <label for="requirements" class="form-label form-label-required">
-                  Requirements
-                </label>
-                <textarea
-                  id="requirements"
-                  name="requirements"
-                  class="form-textarea"
-                  placeholder="Describe what you want to build..."
+                  placeholder="my-awesome-project"
                   required
-                  minlength="10"
-                  aria-describedby="requirements-hint requirements-error"
-                ></textarea>
-                <span id="requirements-hint" class="form-hint">
-                  Minimum 10 characters
+                  minlength="5"
+                  maxlength="100"
+                >
+                <span id="projectName-hint" class="form-hint">
+                  Lowercase letters, numbers, underscore, hyphen. Must start with a letter and end with a letter or number. Min 5 characters.
                 </span>
-                <span id="requirements-error" class="form-error hidden" role="alert"></span>
+                <span id="projectName-error" class="form-error hidden" role="alert"></span>
               </div>
+              <button type="button" id="demo-btn" class="btn btn-secondary" style="white-space: nowrap;">Create Todo Demo</button>
+            </div>
 
-              <details style="margin-top: var(--space-4);">
-                <summary style="cursor: pointer; font-weight: var(--font-weight-semibold); color: var(--color-neutral-600); padding: var(--space-2) 0;">
-                  Advanced Options
-                </summary>
-                <div style="padding-top: var(--space-2);">
-                  <div class="form-group">
-                    <label for="model" class="form-label">
-                      Main Agent Model
-                    </label>
-                    <select
-                      id="model"
-                      name="model"
-                      class="form-input"
-                      aria-describedby="model-hint"
-                    >
-                      <option value="">Loading models...</option>
-                    </select>
-                    <span id="model-hint" class="form-hint">
-                      AI model for the main orchestrator (AICoder)
-                    </span>
-                  </div>
+            <div class="form-group full hidden" id="existingPath-group">
+              <label for="existingPath" class="form-label form-label-required">Existing Project Path</label>
+              <input
+                type="text"
+                id="existingPath"
+                name="existingPath"
+                class="form-input"
+                placeholder="/absolute/path/to/your/project"
+              >
+              <span id="existingPath-hint" class="form-hint">
+                Absolute path to an existing git repository. AICoder will create a git worktree under the managed project directory so your original repo stays untouched.
+              </span>
+              <span id="existingPath-error" class="form-error hidden" role="alert"></span>
+            </div>
 
-                  <div class="form-group">
-                    <label for="subagentModel" class="form-label">
-                      Sub-agent Model
-                    </label>
-                    <select
-                      id="subagentModel"
-                      name="subagentModel"
-                      class="form-input"
-                      aria-describedby="subagentModel-hint"
-                    >
-                      <option value="">Loading models...</option>
-                    </select>
-                    <span id="subagentModel-hint" class="form-hint">
-                      AI model for pipeline sub-agents (clarify, design, dev, test, etc.)
-                    </span>
-                  </div>
+            <div class="form-group full">
+              <label for="requirements" class="form-label form-label-required">Requirements</label>
+              <textarea
+                id="requirements"
+                name="requirements"
+                class="form-textarea"
+                placeholder="Describe what you want to build..."
+                required
+                minlength="10"
+              ></textarea>
+              <span id="requirements-hint" class="form-hint">Minimum 10 characters</span>
+              <span id="requirements-error" class="form-error hidden" role="alert"></span>
+            </div>
 
-                  <div class="form-group">
-                    <label for="reasoningEffort" class="form-label">
-                      Reasoning Level
-                    </label>
-                    <select
-                      id="reasoningEffort"
-                      name="reasoningEffort"
-                      class="form-input"
-                      aria-describedby="reasoningEffort-hint"
-                    >
-                      <option value="low" selected>low</option>
-                      <option value="medium">medium</option>
-                      <option value="high">high</option>
-                    </select>
-                    <span id="reasoningEffort-hint" class="form-hint">
-                      Controls how much reasoning the agents perform. Lower = faster & cheaper.
-                    </span>
-                  </div>
-
-                  <div class="card" style="border: 1px solid var(--color-neutral-200); margin-top: var(--space-4);">
-                    <div class="card-header" style="padding: var(--space-4); border-bottom: 1px solid var(--color-neutral-200); background: var(--color-neutral-50);">
-                      <h3 class="card-title" style="font-size: var(--font-size-base); margin: 0;">OpenCode Environment</h3>
+            <div class="form-group full">
+              <details class="details-box">
+                <summary class="details-summary">Advanced Options</summary>
+                <div class="details-body">
+                  <div class="form-grid">
+                    <div class="form-group">
+                      <label for="model" class="form-label">Main Agent Model</label>
+                      <select id="model" name="model" class="form-select">
+                        <option value="">Loading models...</option>
+                      </select>
+                      <span id="model-hint" class="form-hint">AI model for the main orchestrator (AICoder)</span>
                     </div>
-                    <div class="card-body" style="padding: var(--space-4);">
-                      <div class="form-group">
-                        <label class="form-label">Environment</label>
-                        <div class="form-radio-group" style="display: flex; gap: var(--space-4); margin-top: var(--space-2); flex-wrap: wrap;">
-                          <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
-                            <input type="radio" name="opencodeEnv" value="external" id="opencode-env-external" checked>
-                            <span>External (default: 127.0.0.1:4096)</span>
-                          </label>
-                          <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
-                            <input type="radio" name="opencodeEnv" value="random" id="opencode-env-random">
-                            <span>Random (temporary local server)</span>
-                          </label>
-                        </div>
-                      </div>
 
-                      <div id="external-config">
+                    <div class="form-group">
+                      <label for="subagentModel" class="form-label">Sub-agent Model</label>
+                      <select id="subagentModel" name="subagentModel" class="form-select">
+                        <option value="">Loading models...</option>
+                      </select>
+                      <span id="subagentModel-hint" class="form-hint">AI model for pipeline sub-agents</span>
+                    </div>
+
+                    <div class="form-group">
+                      <label for="reasoningEffort" class="form-label">Reasoning Level</label>
+                      <select id="reasoningEffort" name="reasoningEffort" class="form-select">
+                        <option value="low" selected>low</option>
+                        <option value="medium">medium</option>
+                        <option value="high">high</option>
+                      </select>
+                      <span id="reasoningEffort-hint" class="form-hint">Lower = faster & cheaper</span>
+                    </div>
+
+                    <div class="form-group full">
+                      <label class="form-label">OpenCode Environment</label>
+                      <div class="form-radio-group">
+                        <label class="form-radio">
+                          <input type="radio" name="opencodeEnv" value="external" id="opencode-env-external" checked>
+                          <span>External (127.0.0.1:4096)</span>
+                        </label>
+                        <label class="form-radio">
+                          <input type="radio" name="opencodeEnv" value="random" id="opencode-env-random">
+                          <span>Random (temporary local server)</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div class="form-group full" id="external-config">
+                      <div class="form-grid">
                         <div class="form-group">
-                          <label for="opencodeUrl" class="form-label">
-                            OpenCode URL
-                          </label>
-                          <input
-                            type="url"
-                            id="opencodeUrl"
-                            name="opencodeUrl"
-                            class="form-input"
-                            value="http://127.0.0.1:4096"
-                            aria-describedby="opencodeUrl-hint opencodeUrl-error"
-                          >
-                          <span id="opencodeUrl-hint" class="form-hint">
-                            URL of the OpenCode server.
-                          </span>
+                          <label for="opencodeUrl" class="form-label">OpenCode URL</label>
+                          <input type="url" id="opencodeUrl" name="opencodeUrl" class="form-input" value="http://127.0.0.1:4096">
+                          <span id="opencodeUrl-hint" class="form-hint">URL of the OpenCode server.</span>
                           <span id="opencodeUrl-error" class="form-error hidden" role="alert"></span>
                         </div>
 
                         <div class="form-group">
-                          <label for="opencodeHeader" class="form-label">
-                            Custom Header
-                          </label>
-                          <input
-                            type="text"
-                            id="opencodeHeader"
-                            name="opencodeHeader"
-                            class="form-input"
-                            placeholder="X-Auth-Token: mytoken"
-                            aria-describedby="opencodeHeader-hint opencodeHeader-error"
-                          >
-                          <span id="opencodeHeader-hint" class="form-hint">
-                            Optional: Custom HTTP header in "Key: Value" format
-                          </span>
+                          <label for="opencodeHeader" class="form-label">Custom Header</label>
+                          <input type="text" id="opencodeHeader" name="opencodeHeader" class="form-input" placeholder="X-Auth-Token: mytoken">
+                          <span id="opencodeHeader-hint" class="form-hint">Optional: Custom HTTP header in "Key: Value" format</span>
                           <span id="opencodeHeader-error" class="form-error hidden" role="alert"></span>
                         </div>
 
-                        <div class="form-row">
-                          <div class="form-group">
-                            <label for="opencodeUsername" class="form-label">
-                              Username
-                            </label>
-                            <input
-                              type="text"
-                              id="opencodeUsername"
-                              name="opencodeUsername"
-                              class="form-input"
-                              placeholder="user"
-                              aria-describedby="opencodeUsername-error"
-                            >
-                            <span id="opencodeUsername-error" class="form-error hidden" role="alert"></span>
-                          </div>
+                        <div class="form-group">
+                          <label for="opencodeUsername" class="form-label">Username</label>
+                          <input type="text" id="opencodeUsername" name="opencodeUsername" class="form-input" placeholder="user">
+                          <span id="opencodeUsername-error" class="form-error hidden" role="alert"></span>
+                        </div>
 
-                          <div class="form-group">
-                            <label for="opencodePassword" class="form-label">
-                              Password
-                            </label>
-                            <input
-                              type="password"
-                              id="opencodePassword"
-                              name="opencodePassword"
-                              class="form-input"
-                              placeholder="password"
-                              aria-describedby="opencodePassword-error"
-                            >
-                            <span id="opencodePassword-error" class="form-error hidden" role="alert"></span>
-                          </div>
+                        <div class="form-group">
+                          <label for="opencodePassword" class="form-label">Password</label>
+                          <input type="password" id="opencodePassword" name="opencodePassword" class="form-input" placeholder="password">
+                          <span id="opencodePassword-error" class="form-error hidden" role="alert"></span>
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </details>
+            </div>
 
-              <div class="form-group" style="margin-top: var(--space-8);">
-                <button
-                  type="submit"
-                  id="submit-btn"
-                  class="btn btn-primary btn-lg btn-block"
-                >
-                  <span id="submit-text">Create Project</span>
-                  <div id="submit-spinner" class="spinner hidden"></div>
-                </button>
-              </div>
-            </form>
+            <div class="form-group full" style="margin-top: 6px;">
+              <button type="submit" id="submit-btn" class="btn btn-primary btn-lg" style="width: 100%;">
+                <span id="submit-text">Create Project</span>
+                <div id="submit-spinner" class="spinner hidden"></div>
+              </button>
+            </div>
           </div>
-        </div>
+        </form>
       </div>
-    </main>
+    </div>
   </div>
 
   <script type="module" src="create.js"></script>

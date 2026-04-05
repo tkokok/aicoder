@@ -53,44 +53,45 @@ function buildMainAgentUrl(metadata: SessionMetadata): string | null {
 }
 
 function renderMetadata(metadata: SessionMetadata): void {
-  const container = document.getElementById('metadata');
+  const container = document.getElementById('metadata-body');
   if (!container) return;
 
-  const statusClass = metadata.status === 'completed' 
-    ? 'status-dot--completed' 
-    : metadata.status === 'error' 
-      ? 'status-dot--error' 
-      : '';
+  const statusBadge = metadata.status === 'completed'
+    ? '<span class="badge completed">completed</span>'
+    : metadata.status === 'error'
+    ? '<span class="badge error">error</span>'
+    : '<span class="badge pending">' + escapeHtml(metadata.status) + '</span>';
 
-  const items: Array<{ label: string; value: string; isStatus?: boolean; isHtml?: boolean }> = [
-    { label: 'Session ID', value: metadata.id },
-    { label: 'Status', value: metadata.status, isStatus: true },
-    { label: 'Project', value: metadata.projectName || 'Unknown' },
-    { label: 'Created', value: metadata.createdAt ? formatDate(metadata.createdAt) : 'N/A' },
+  const rows: Array<{ label: string; value: string }> = [
+    { label: 'Session ID', value: escapeHtml(metadata.id) },
+    { label: 'Status', value: statusBadge },
+    { label: 'Project', value: escapeHtml(metadata.projectName || 'Unknown') },
+    { label: 'Created', value: escapeHtml(metadata.createdAt ? formatDate(metadata.createdAt) : 'N/A') },
   ];
 
   if (metadata.completedAt) {
-    items.push({ label: 'Completed', value: formatDate(metadata.completedAt) });
+    rows.push({ label: 'Completed', value: escapeHtml(formatDate(metadata.completedAt)) });
   }
 
   const mainAgentUrl = buildMainAgentUrl(metadata);
   if (mainAgentUrl) {
-    items.push({
+    rows.push({
       label: 'Main Agent',
-      value: `<a href="${escapeHtml(mainAgentUrl)}" target="_blank" style="color: var(--color-accent); text-decoration: none;">${escapeHtml(mainAgentUrl)}</a>`,
-      isHtml: true,
+      value: `<a href="${escapeHtml(mainAgentUrl)}" target="_blank">${escapeHtml(mainAgentUrl)}</a>`,
     });
   }
 
-  container.innerHTML = items.map(item => `
-    <div class="metadata__item">
-      <div class="metadata__label">${item.label}</div>
-      <div class="metadata__value${item.isStatus ? ' metadata__value--status' : ''}">
-        ${item.isStatus ? `<span class="status-dot ${statusClass}"></span>` : ''}
-        ${item.isHtml ? item.value : escapeHtml(item.value)}
-      </div>
-    </div>
+  container.innerHTML = rows.map(row => `
+    <tr>
+      <th>${escapeHtml(row.label)}</th>
+      <td>${row.value}</td>
+    </tr>
   `).join('');
+
+  const backLink = document.getElementById('back-link') as HTMLAnchorElement | null;
+  if (backLink) {
+    backLink.href = `status.html?session=${encodeURIComponent(metadata.id)}`;
+  }
 }
 
 function renderLoading(): void {

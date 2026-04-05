@@ -4,125 +4,204 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AICoder - Projects</title>
-  <link rel="stylesheet" href="styles.css">
   <style>
-    .toolbar {
-      display: flex;
-      justify-content: flex-end;
-      margin-bottom: var(--space-6);
+    :root {
+      --bg: #0b0c0f;
+      --surface: #12131a;
+      --surface-2: #1a1c24;
+      --border: #2a2d38;
+      --text: #e8eaf0;
+      --text-secondary: #9aa0ae;
+      --text-muted: #5e6470;
+      --accent: #60a5fa;
+      --accent-2: #22d3ee;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --error: #f87171;
     }
-    .session-list {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-4);
+    * { box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      font-size: 14px;
+      line-height: 1.45;
+      margin: 0;
     }
-    .session-item {
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px 20px 40px;
+    }
+    header.topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: var(--space-4);
-      padding: var(--space-4);
-      border: 1px solid var(--color-neutral-200);
-      border-radius: var(--radius-md);
-      background: var(--color-neutral-0);
-      transition: box-shadow var(--transition-fast);
+      padding: 12px 0 18px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
     }
-    .session-item:hover {
-      box-shadow: var(--shadow-md);
-    }
-    .session-info {
-      flex: 1;
-      min-width: 0;
-    }
-    .session-name {
+    .topbar h1 {
+      font-size: 18px;
+      font-weight: 700;
       margin: 0;
-      font-size: var(--font-size-lg);
-      font-weight: var(--font-weight-semibold);
-      color: var(--color-neutral-900);
+      letter-spacing: 0.2px;
     }
-    .session-meta {
-      margin-top: var(--space-1);
-      font-size: var(--font-size-sm);
-      color: var(--color-neutral-500);
-    }
-    .session-actions {
-      display: flex;
+    .btn {
+      display: inline-flex;
       align-items: center;
-      gap: var(--space-3);
-      flex-shrink: 0;
+      gap: 6px;
+      padding: 7px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
     }
+    .btn:hover { border-color: var(--text-muted); }
+    .btn-primary { background: linear-gradient(180deg, rgba(96,165,250,0.15), rgba(96,165,250,0.08)); border-color: rgba(96,165,250,0.45); color: #bfdbfe; }
+    .btn-primary:hover { border-color: rgba(96,165,250,0.7); }
+    .btn-danger { background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.45); color: #fecaca; }
+    .btn-danger:hover { border-color: rgba(248,113,113,0.7); }
+    .btn-secondary { color: var(--text-secondary); }
+
+    .toolbar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+
+    .session-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      font-size: 13px;
+    }
+    .session-table th, .session-table td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .session-table th {
+      color: var(--text-muted);
+      font-weight: 600;
+      background: rgba(255,255,255,0.02);
+      white-space: nowrap;
+    }
+    .session-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+    .session-table tbody tr:last-child td { border-bottom: none; }
+    .session-table td { color: var(--text-secondary); }
+    .session-table td > a { color: var(--text); font-weight: 500; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text-secondary);
+    }
+    .badge.running { color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.12); }
+    .badge.completed { color: var(--success); border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.12); }
+    .badge.failed { color: var(--error); border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.12); }
+    .badge.pending { color: var(--warning); border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.12); }
+
     .empty-state {
       text-align: center;
-      padding: var(--space-12) var(--space-4);
-      color: var(--color-neutral-500);
+      padding: 60px 20px;
+      color: var(--text-muted);
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+    }
+
+    @media (max-width: 720px) {
+      .session-table .hide-sm { display: none; }
     }
 
     /* Modal */
     .modal-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.45);
+      background: rgba(0,0,0,0.6);
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: var(--z-modal);
+      z-index: 1000;
       opacity: 0;
       pointer-events: none;
-      transition: opacity var(--transition-fast);
+      transition: opacity 120ms ease;
     }
-    .modal-backdrop.open {
-      opacity: 1;
-      pointer-events: auto;
-    }
+    .modal-backdrop.open { opacity: 1; pointer-events: auto; }
     .modal {
-      background: var(--color-neutral-0);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-xl);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
       width: 100%;
-      max-width: 480px;
-      margin: var(--space-4);
+      max-width: 420px;
+      margin: 16px;
       overflow: hidden;
     }
     .modal-header {
-      padding: var(--space-4) var(--space-6);
-      border-bottom: 1px solid var(--color-neutral-200);
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
     }
     .modal-title {
       margin: 0;
-      font-size: var(--font-size-lg);
-      font-weight: var(--font-weight-semibold);
+      font-size: 14px;
+      font-weight: 700;
     }
-    .modal-body {
-      padding: var(--space-6);
-    }
+    .modal-body { padding: 16px; }
     .modal-footer {
       display: flex;
       justify-content: flex-end;
-      gap: var(--space-3);
-      padding: var(--space-4) var(--space-6);
-      border-top: 1px solid var(--color-neutral-200);
-      background: var(--color-neutral-50);
+      gap: 10px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+    .form-input {
+      width: 100%;
+      padding: 8px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+    .form-input:focus { border-color: var(--accent); }
+    .form-label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+    .form-error { display: block; color: var(--error); font-size: 12px; margin-top: 6px; }
+    .hidden { display: none !important; }
+    .mono-box {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      padding: 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-secondary);
+      margin-bottom: 10px;
     }
   </style>
 </head>
 <body>
-  <div class="page">
-    <header class="page-header">
-      <div class="container">
-        <h1 class="page-title">AICoder</h1>
-        <p class="page-subtitle">AI-Powered Coding Agent</p>
-      </div>
+  <div class="container">
+    <header class="topbar">
+      <h1>AICoder</h1>
+      <a href="create.html" class="btn btn-primary">+ New Project</a>
     </header>
 
-    <main class="page-content">
-      <div class="container">
-        <div class="toolbar">
-          <a href="create.html" class="btn btn-primary">+ New Project</a>
-        </div>
-
-        <div id="session-list-container" class="session-list"></div>
-      </div>
-    </main>
+    <div id="session-list-container" class="empty-state">Loading sessions...</div>
   </div>
 
   <!-- Delete Confirmation Modal -->
@@ -132,11 +211,11 @@
         <h2 class="modal-title">Delete Project</h2>
       </div>
       <div class="modal-body">
-        <p style="margin: 0 0 var(--space-4);">
+        <p style="margin: 0 0 10px; color: var(--text-secondary);">
           This action cannot be undone. To confirm deletion, type the project name below:
         </p>
-        <div class="font-mono" style="font-size: var(--font-size-sm); color: var(--color-neutral-700); margin-bottom: var(--space-4); padding: var(--space-3); background: var(--color-neutral-100); border-radius: var(--radius-md);" id="delete-target-name"></div>
-        <div class="form-group" style="margin-bottom: 0;">
+        <div class="mono-box" id="delete-target-name"></div>
+        <div style="margin-bottom: 0;">
           <label for="delete-confirm-input" class="form-label">Project name</label>
           <input type="text" id="delete-confirm-input" class="form-input" placeholder="Type project name to confirm">
           <span id="delete-error" class="form-error hidden"></span>
@@ -144,7 +223,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" id="delete-cancel-btn">Cancel</button>
-        <button type="button" class="btn btn-primary" id="delete-confirm-btn" disabled style="background-color: var(--color-error-600); border-color: var(--color-error-600);">Delete</button>
+        <button type="button" class="btn btn-danger" id="delete-confirm-btn" disabled>Delete</button>
       </div>
     </div>
   </div>

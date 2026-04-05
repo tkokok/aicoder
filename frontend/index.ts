@@ -81,13 +81,28 @@ class SessionListPage {
       this.container.innerHTML = `
         <div class="empty-state">
           <p>No projects yet.</p>
-          <a href="create.html" class="btn btn-primary mt-4">Create your first project</a>
+          <a href="create.html" class="btn btn-primary" style="margin-top: 12px;">Create your first project</a>
         </div>
       `;
       return;
     }
 
-    this.container.innerHTML = sessions.map((s) => this.renderSessionItem(s)).join('');
+    this.container.innerHTML = `
+      <table class="session-table">
+        <thead>
+          <tr>
+            <th>Project</th>
+            <th>Status</th>
+            <th class="hide-sm">Current Agent</th>
+            <th class="hide-sm">Created</th>
+            <th style="text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sessions.map((s) => this.renderSessionRow(s)).join('')}
+        </tbody>
+      </table>
+    `;
 
     // Bind action buttons
     this.container.querySelectorAll('[data-action="delete"]').forEach((btn) => {
@@ -99,25 +114,22 @@ class SessionListPage {
     });
   }
 
-  private renderSessionItem(s: SessionItem): string {
+  private renderSessionRow(s: SessionItem): string {
     const date = new Date(s.created_at).toLocaleString();
     const statusClass = this.statusBadgeClass(s.status);
     return `
-      <div class="session-item">
-        <div class="session-info">
-          <h3 class="session-name">${this.escapeHtml(s.project_name)}</h3>
-          <div class="session-meta">
-            <span class="badge ${statusClass}">${s.status}</span>
-            <span> · ${this.escapeHtml(s.tech_stack)}</span>
-            <span> · ${date}</span>
-            ${s.current_agent ? `<span> · ${this.escapeHtml(s.current_agent)}</span>` : ''}
+      <tr>
+        <td><a href="status.html?session=${encodeURIComponent(s.id)}">${this.escapeHtml(s.project_name)}</a></td>
+        <td><span class="badge ${statusClass}">${s.status}</span></td>
+        <td class="hide-sm">${this.escapeHtml(s.current_agent || '-')}</td>
+        <td class="hide-sm">${date}</td>
+        <td style="text-align: right;">
+          <div style="display: inline-flex; gap: 8px;">
+            <a href="status.html?session=${encodeURIComponent(s.id)}" class="btn btn-primary" style="padding: 5px 10px;">View</a>
+            <button type="button" class="btn btn-danger" style="padding: 5px 10px;" data-action="delete" data-id="${this.escapeHtml(s.id)}" data-name="${this.escapeHtml(s.project_name)}">Delete</button>
           </div>
-        </div>
-        <div class="session-actions">
-          <a href="status.html?session=${encodeURIComponent(s.id)}" class="btn btn-primary">View</a>
-          <button type="button" class="btn btn-secondary" data-action="delete" data-id="${this.escapeHtml(s.id)}" data-name="${this.escapeHtml(s.project_name)}">Delete</button>
-        </div>
-      </div>
+        </td>
+      </tr>
     `;
   }
 
