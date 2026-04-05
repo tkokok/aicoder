@@ -37,6 +37,15 @@ db.exec(`
     created_at INTEGER NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(id)
   );
+
+  CREATE TABLE IF NOT EXISTS agents (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    agent_url TEXT NOT NULL,
+    opencode_local_url TEXT NOT NULL,
+    opencode_public_url TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
 `);
 
 function runMigrations() {
@@ -56,6 +65,7 @@ function runMigrations() {
     ['sessions', 'messages_json', 'TEXT'],
     ['session_inputs', 'model', 'TEXT'],
     ['session_inputs', 'subagent_model', 'TEXT'],
+    ['sessions', 'agent_id', 'TEXT'],
   ];
 
   // Run migrations within a transaction for atomicity

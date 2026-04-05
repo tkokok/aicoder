@@ -170,6 +170,7 @@ export interface SessionInput {
   mode?: unknown;
   pipelineMode?: unknown;
   existingPath?: unknown;
+  agentId?: unknown;
   opencodeEnv?: unknown;
   opencodeUrl?: unknown;
   opencodeHeader?: unknown;

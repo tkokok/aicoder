@@ -159,6 +159,10 @@ async function getGitRepoName(dir: string): Promise<string | null> {
 }
 
 export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
+  fastify.get('/api/config', async (_request, reply) => {
+    return reply.send({ useDataPlane: false });
+  });
+
   fastify.get('/api/sessions', async (_request, reply) => {
     const rows = db.prepare(`
       SELECT

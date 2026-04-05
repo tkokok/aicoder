@@ -6,7 +6,7 @@ import { startControlPlane } from './control/index.js';
 import { startDataPlane } from './data/index.js';
 import logger from './logger.js';
 
-const USE_DATA_PLANE = process.env.USE_DATA_PLANE === 'true';
+const USE_DATA_PLANE = process.env.USE_DATA_PLANE !== 'false';
 
 async function startLegacyServer(): Promise<void> {
   // Import legacy modules inline to avoid loading them when not needed

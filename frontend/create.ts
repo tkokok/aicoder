@@ -10,6 +10,7 @@ interface ProjectFormData {
   mode?: string;
   pipelineMode?: string;
   existingPath?: string;
+  agentId?: string;
   opencodeEnv?: string;
   opencodeUrl?: string;
   opencodeHeader?: string;
@@ -32,7 +33,11 @@ interface ApiResponse {
 
 const API_ENDPOINT = '/api/sessions';
 const MODELS_ENDPOINT = '/api/models';
+const AGENTS_ENDPOINT = '/api/agents';
 const DEFAULT_MODEL = 'zhipuai-coding-plan/glm-4.7-flashx';
+
+let useDataPlane = false;
+let availableAgents: Array<{ id: string; name: string }> = [];
 
 async function fetchModels(): Promise<{ models: Array<{ id: string; name: string }>; default: string }> {
   try {
@@ -186,21 +191,27 @@ function validateForm(formData: ProjectFormData): ValidationError[] {
     errors.push({ field: 'requirements', message: requirementsError });
   }
 
-  if (formData.opencodeEnv !== 'random' && formData.opencodeUrl) {
-    const urlError = validateOpencodeUrl(formData.opencodeUrl);
-    if (urlError) errors.push({ field: 'opencodeUrl', message: urlError });
-  }
-  if (formData.opencodeHeader) {
-    const headerError = validateOpencodeHeader(formData.opencodeHeader);
-    if (headerError) errors.push({ field: 'opencodeHeader', message: headerError });
-  }
-  if (formData.opencodeUsername) {
-    const usernameError = validateOpencodeUsername(formData.opencodeUsername);
-    if (usernameError) errors.push({ field: 'opencodeUsername', message: usernameError });
-  }
-  if (formData.opencodePassword) {
-    const passwordError = validateOpencodePassword(formData.opencodePassword);
-    if (passwordError) errors.push({ field: 'opencodePassword', message: passwordError });
+  if (useDataPlane) {
+    if (!formData.agentId) {
+      errors.push({ field: 'agentId', message: 'Please select an agent' });
+    }
+  } else {
+    if (formData.opencodeEnv !== 'random' && formData.opencodeUrl) {
+      const urlError = validateOpencodeUrl(formData.opencodeUrl);
+      if (urlError) errors.push({ field: 'opencodeUrl', message: urlError });
+    }
+    if (formData.opencodeHeader) {
+      const headerError = validateOpencodeHeader(formData.opencodeHeader);
+      if (headerError) errors.push({ field: 'opencodeHeader', message: headerError });
+    }
+    if (formData.opencodeUsername) {
+      const usernameError = validateOpencodeUsername(formData.opencodeUsername);
+      if (usernameError) errors.push({ field: 'opencodeUsername', message: usernameError });
+    }
+    if (formData.opencodePassword) {
+      const passwordError = validateOpencodePassword(formData.opencodePassword);
+      if (passwordError) errors.push({ field: 'opencodePassword', message: passwordError });
+    }
   }
 
   return errors;
@@ -235,7 +246,9 @@ function clearFieldError(fieldId: string): void {
 }
 
 function clearAllErrors(): void {
-  const fields = ['projectName', 'existingPath', 'requirements', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
+  const fields = useDataPlane
+    ? ['projectName', 'existingPath', 'requirements', 'agentId']
+    : ['projectName', 'existingPath', 'requirements', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
   fields.forEach(field => clearFieldError(field));
 
   const errorContainer = document.getElementById('error-container') as HTMLElement;
@@ -308,6 +321,7 @@ function getFormData(): ProjectFormData {
   const requirements = (document.getElementById('requirements') as HTMLTextAreaElement)?.value || '';
   const model = (document.getElementById('model') as HTMLSelectElement)?.value || '';
   const subagentModel = (document.getElementById('subagentModel') as HTMLSelectElement)?.value || '';
+  const agentId = (document.getElementById('agentId') as HTMLSelectElement)?.value || '';
   const opencodeUrl = (document.getElementById('opencodeUrl') as HTMLInputElement)?.value || '';
   const opencodeHeader = (document.getElementById('opencodeHeader') as HTMLInputElement)?.value || '';
   const opencodeUsername = (document.getElementById('opencodeUsername') as HTMLInputElement)?.value || '';
@@ -321,7 +335,6 @@ function getFormData(): ProjectFormData {
     pipelineMode: pipelineModeRadio?.value || 'standard',
     model: model || undefined,
     subagentModel: subagentModel || undefined,
-    opencodeEnv: opencodeEnvRadio?.value || 'external',
     reasoningEffort: reasoningEffort || undefined,
   };
 
@@ -329,17 +342,22 @@ function getFormData(): ProjectFormData {
     formData.existingPath = existingPath.trim();
   }
 
-  if (formData.opencodeEnv !== 'random' && opencodeUrl.trim()) {
-    formData.opencodeUrl = opencodeUrl.trim();
-  }
-  if (opencodeHeader.trim()) {
-    formData.opencodeHeader = opencodeHeader.trim();
-  }
-  if (opencodeUsername.trim()) {
-    formData.opencodeUsername = opencodeUsername.trim();
-  }
-  if (opencodePassword) {
-    formData.opencodePassword = opencodePassword;
+  if (useDataPlane) {
+    if (agentId) formData.agentId = agentId;
+  } else {
+    formData.opencodeEnv = opencodeEnvRadio?.value || 'external';
+    if (formData.opencodeEnv !== 'random' && opencodeUrl.trim()) {
+      formData.opencodeUrl = opencodeUrl.trim();
+    }
+    if (opencodeHeader.trim()) {
+      formData.opencodeHeader = opencodeHeader.trim();
+    }
+    if (opencodeUsername.trim()) {
+      formData.opencodeUsername = opencodeUsername.trim();
+    }
+    if (opencodePassword) {
+      formData.opencodePassword = opencodePassword;
+    }
   }
 
   return formData;
@@ -397,7 +415,53 @@ function handleFormSubmit(event: Event): void {
   submitForm(formData);
 }
 
-function initForm(): void {
+async function loadAgents(): Promise<void> {
+  const select = document.getElementById('agentId') as HTMLSelectElement | null;
+  if (!select) return;
+  try {
+    const response = await fetch(AGENTS_ENDPOINT);
+    if (!response.ok) throw new Error('Failed to load agents');
+    availableAgents = (await response.json()) as Array<{ id: string; name: string }>;
+    select.innerHTML = '';
+    if (availableAgents.length === 0) {
+      select.innerHTML = '<option value="">No agents available</option>';
+      return;
+    }
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select an agent';
+    select.appendChild(placeholder);
+    for (const agent of availableAgents) {
+      const opt = document.createElement('option');
+      opt.value = agent.id;
+      opt.textContent = agent.name;
+      select.appendChild(opt);
+    }
+  } catch {
+    select.innerHTML = '<option value="">Failed to load agents</option>';
+  }
+}
+
+async function initForm(): Promise<void> {
+  // Load config to determine local vs remote mode
+  try {
+    const configRes = await fetch('/api/config');
+    if (configRes.ok) {
+      const config = (await configRes.json()) as { useDataPlane?: boolean };
+      useDataPlane = !!config.useDataPlane;
+    }
+  } catch {
+    // ignore
+  }
+
+  if (useDataPlane) {
+    const agentGroup = document.getElementById('agent-selection-group');
+    const advancedBox = document.getElementById('advanced-options-box');
+    if (agentGroup) agentGroup.style.display = 'block';
+    if (advancedBox) advancedBox.classList.add('hidden');
+    await loadAgents();
+  }
+
   fetchModels().then((data) => {
     populateModelSelect(data, 'model');
     populateModelSelect(data, 'subagentModel');
@@ -407,14 +471,15 @@ function initForm(): void {
   });
 
   const form = document.getElementById('project-form') as HTMLFormElement;
-  
   if (form) {
     form.addEventListener('submit', handleFormSubmit);
   }
-  
-  const inputs = ['projectName', 'existingPath', 'requirements', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
+
+  const inputs = useDataPlane
+    ? ['projectName', 'existingPath', 'requirements', 'agentId']
+    : ['projectName', 'existingPath', 'requirements', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
   inputs.forEach(inputId => {
-    const input = document.getElementById(inputId) as HTMLInputElement | HTMLTextAreaElement;
+    const input = document.getElementById(inputId) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 
     if (input) {
       input.addEventListener('blur', () => {
@@ -431,6 +496,9 @@ function initForm(): void {
             break;
           case 'requirements':
             error = validateRequirements(value);
+            break;
+          case 'agentId':
+            if (!value) error = 'Please select an agent';
             break;
           case 'opencodeUrl':
             error = validateOpencodeUrl(value);
@@ -454,6 +522,9 @@ function initForm(): void {
       });
 
       input.addEventListener('input', () => {
+        clearFieldError(inputId);
+      });
+      input.addEventListener('change', () => {
         clearFieldError(inputId);
       });
     }
@@ -487,20 +558,22 @@ function initForm(): void {
     });
   });
 
-  const opencodeEnvRadios = document.querySelectorAll('input[name="opencodeEnv"]');
-  opencodeEnvRadios.forEach(radio => {
-    radio.addEventListener('change', () => {
-      const selected = (document.querySelector('input[name="opencodeEnv"]:checked') as HTMLInputElement | null)?.value || 'external';
-      const externalConfig = document.getElementById('external-config');
-      if (externalConfig) {
-        if (selected === 'external') {
-          externalConfig.classList.remove('hidden');
-        } else {
-          externalConfig.classList.add('hidden');
+  if (!useDataPlane) {
+    const opencodeEnvRadios = document.querySelectorAll('input[name="opencodeEnv"]');
+    opencodeEnvRadios.forEach(radio => {
+      radio.addEventListener('change', () => {
+        const selected = (document.querySelector('input[name="opencodeEnv"]:checked') as HTMLInputElement | null)?.value || 'external';
+        const externalConfig = document.getElementById('external-config');
+        if (externalConfig) {
+          if (selected === 'external') {
+            externalConfig.classList.remove('hidden');
+          } else {
+            externalConfig.classList.add('hidden');
+          }
         }
-      }
+      });
     });
-  });
+  }
 
   if (demoBtn) {
     demoBtn.addEventListener('click', () => {

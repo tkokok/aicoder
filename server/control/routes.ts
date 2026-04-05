@@ -30,6 +30,14 @@ interface CreateSessionBody {
   opencodeUsername?: unknown;
   opencodePassword?: unknown;
   reasoningEffort?: unknown;
+  agentId?: unknown;
+}
+
+interface AgentBody {
+  name: unknown;
+  agentUrl: unknown;
+  opencodeLocalUrl: unknown;
+  opencodePublicUrl: unknown;
 }
 
 interface SessionResponse {
@@ -48,6 +56,17 @@ function requireString(value: unknown, fieldName: string): string {
   }
   return value.trim();
 }
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+const USE_DATA_PLANE = process.env.USE_DATA_PLANE !== 'false';
 
 function sanitizeProjectName(name: string): string {
   return name
@@ -137,6 +156,117 @@ async function getGitRepoName(dir: string): Promise<string | null> {
 }
 
 export async function registerControlRoutes(fastify: FastifyInstance): Promise<void> {
+  fastify.get('/api/config', async (_request, reply) => {
+    return reply.send({ useDataPlane: USE_DATA_PLANE });
+  });
+
+  fastify.get('/api/agents', async (_request, reply) => {
+    const rows = db.prepare(
+      'SELECT id, name, agent_url, opencode_local_url, opencode_public_url, created_at FROM agents ORDER BY created_at DESC'
+    ).all() as Array<{
+      id: string;
+      name: string;
+      agent_url: string;
+      opencode_local_url: string;
+      opencode_public_url: string;
+      created_at: number;
+    }>;
+    return reply.send(
+      rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        agentUrl: r.agent_url,
+        opencodeLocalUrl: r.opencode_local_url,
+        opencodePublicUrl: r.opencode_public_url,
+        createdAt: r.created_at,
+      }))
+    );
+  });
+
+  fastify.post<{ Body: AgentBody }>('/api/agents', async (request, reply) => {
+    const name = typeof request.body.name === 'string' ? request.body.name.trim() : '';
+    const agentUrl = typeof request.body.agentUrl === 'string' ? request.body.agentUrl.trim() : '';
+    const opencodeLocalUrl = typeof request.body.opencodeLocalUrl === 'string' ? request.body.opencodeLocalUrl.trim() : '';
+    const opencodePublicUrl = typeof request.body.opencodePublicUrl === 'string' ? request.body.opencodePublicUrl.trim() : '';
+
+    const errors: string[] = [];
+    if (!name) errors.push('Name is required');
+    if (!agentUrl) errors.push('Agent URL is required');
+    else if (!isValidHttpUrl(agentUrl)) errors.push('Agent URL must be a valid HTTP/HTTPS URL');
+    if (!opencodeLocalUrl) errors.push('OpenCode local URL is required');
+    else if (!isValidHttpUrl(opencodeLocalUrl)) errors.push('OpenCode local URL must be a valid HTTP/HTTPS URL');
+    if (!opencodePublicUrl) errors.push('OpenCode public URL is required');
+    else if (!isValidHttpUrl(opencodePublicUrl)) errors.push('OpenCode public URL must be a valid HTTP/HTTPS URL');
+
+    if (errors.length > 0) {
+      return reply.status(400).send({ error: 'Validation failed', errors });
+    }
+
+    // Health check agent URL
+    try {
+      const client = new AgentClient(agentUrl);
+      await client.healthCheck();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return reply.status(400).send({ error: 'Agent health check failed', errors: [msg] });
+    }
+
+    const id = generateId();
+    db.prepare(
+      'INSERT INTO agents (id, name, agent_url, opencode_local_url, opencode_public_url, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(id, name, agentUrl, opencodeLocalUrl, opencodePublicUrl, Date.now());
+
+    return reply.status(201).send({ id, name, agentUrl, opencodeLocalUrl, opencodePublicUrl });
+  });
+
+  fastify.put<{ Params: { id: string }; Body: AgentBody }>('/api/agents/:id', async (request, reply) => {
+    const { id } = request.params;
+    const name = typeof request.body.name === 'string' ? request.body.name.trim() : '';
+    const agentUrl = typeof request.body.agentUrl === 'string' ? request.body.agentUrl.trim() : '';
+    const opencodeLocalUrl = typeof request.body.opencodeLocalUrl === 'string' ? request.body.opencodeLocalUrl.trim() : '';
+    const opencodePublicUrl = typeof request.body.opencodePublicUrl === 'string' ? request.body.opencodePublicUrl.trim() : '';
+
+    const errors: string[] = [];
+    if (!name) errors.push('Name is required');
+    if (!agentUrl) errors.push('Agent URL is required');
+    else if (!isValidHttpUrl(agentUrl)) errors.push('Agent URL must be a valid HTTP/HTTPS URL');
+    if (!opencodeLocalUrl) errors.push('OpenCode local URL is required');
+    else if (!isValidHttpUrl(opencodeLocalUrl)) errors.push('OpenCode local URL must be a valid HTTP/HTTPS URL');
+    if (!opencodePublicUrl) errors.push('OpenCode public URL is required');
+    else if (!isValidHttpUrl(opencodePublicUrl)) errors.push('OpenCode public URL must be a valid HTTP/HTTPS URL');
+
+    if (errors.length > 0) {
+      return reply.status(400).send({ error: 'Validation failed', errors });
+    }
+
+    try {
+      const client = new AgentClient(agentUrl);
+      await client.healthCheck();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return reply.status(400).send({ error: 'Agent health check failed', errors: [msg] });
+    }
+
+    const result = db.prepare(
+      'UPDATE agents SET name = ?, agent_url = ?, opencode_local_url = ?, opencode_public_url = ? WHERE id = ?'
+    ).run(name, agentUrl, opencodeLocalUrl, opencodePublicUrl, id);
+
+    if (result.changes === 0) {
+      return reply.status(404).send({ error: 'Agent not found' });
+    }
+
+    return reply.send({ id, name, agentUrl, opencodeLocalUrl, opencodePublicUrl });
+  });
+
+  fastify.delete<{ Params: { id: string } }>('/api/agents/:id', async (request, reply) => {
+    const { id } = request.params;
+    const result = db.prepare('DELETE FROM agents WHERE id = ?').run(id);
+    if (result.changes === 0) {
+      return reply.status(404).send({ error: 'Agent not found' });
+    }
+    return reply.status(204).send();
+  });
+
   fastify.get('/api/sessions', async (_request, reply) => {
     const rows = db.prepare(`
       SELECT
@@ -208,6 +338,7 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         mode: request.body.mode,
         pipelineMode: request.body.pipelineMode,
         existingPath: request.body.existingPath,
+        agentId: request.body.agentId,
         opencodeEnv: request.body.opencodeEnv,
         opencodeUrl: request.body.opencodeUrl,
         opencodeHeader: request.body.opencodeHeader,
@@ -332,10 +463,37 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         return reply.status(500).send({ error: 'Failed to create session' });
       }
 
-      // Call data plane to start pipeline
-      const agentClient = new AgentClient(getAgentUrl());
-      try {
-        const startRes = await agentClient.startPipeline({
+      // Determine agent configuration
+      let agentClient: AgentClient;
+      let startPipelineParams: Parameters<AgentClient['startPipeline']>[0];
+      let opencodePublicUrl: string;
+
+      if (USE_DATA_PLANE) {
+        const agentId = typeof input.agentId === 'string' ? input.agentId.trim() : '';
+        if (!agentId) {
+          return reply.status(400).send({ error: 'Validation failed', errors: ['Agent is required in remote mode'] });
+        }
+        const agent = db.prepare('SELECT id, name, agent_url, opencode_local_url, opencode_public_url FROM agents WHERE id = ?').get(agentId) as { id: string; name: string; agent_url: string; opencode_local_url: string; opencode_public_url: string } | undefined;
+        if (!agent) {
+          return reply.status(400).send({ error: 'Validation failed', errors: ['Selected agent not found'] });
+        }
+        agentClient = new AgentClient(agent.agent_url);
+        startPipelineParams = {
+          sessionId,
+          opencodeSessionId: '', // data plane will create it
+          playbook,
+          workspaceDir,
+          projectDir,
+          mode: pipelineMode,
+          model: mainModel,
+          reasoningEffort,
+          opencodeEnv: 'external',
+          opencodeUrl: agent.opencode_local_url,
+        };
+        opencodePublicUrl = agent.opencode_public_url;
+      } else {
+        agentClient = new AgentClient(getAgentUrl());
+        startPipelineParams = {
           sessionId,
           opencodeSessionId: '', // data plane will create it
           playbook,
@@ -349,17 +507,21 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
           opencodeHeader: typeof input.opencodeHeader === 'string' ? input.opencodeHeader : undefined,
           opencodeUsername: typeof input.opencodeUsername === 'string' ? input.opencodeUsername : undefined,
           opencodePassword: typeof input.opencodePassword === 'string' ? input.opencodePassword : undefined,
-        });
+        };
+        opencodePublicUrl = startPipelineParams.opencodeUrl || 'http://127.0.0.1:4096';
+      }
 
-        // Update DB with opencode info returned by data plane
+      try {
+        const startRes = await agentClient.startPipeline(startPipelineParams);
+
         db.prepare(
-          `UPDATE sessions SET opencode_session_id = ?, opencode_url = ? WHERE id = ?`
-        ).run(startRes.opencodeSessionId, startRes.opencodeUrl, sessionId);
+          `UPDATE sessions SET opencode_session_id = ?, opencode_url = ?, agent_id = ? WHERE id = ?`
+        ).run(startRes.opencodeSessionId, opencodePublicUrl, USE_DATA_PLANE ? (typeof input.agentId === 'string' ? input.agentId.trim() : '') : '', sessionId);
 
         return reply.status(201).send({
           id: sessionId,
           status: 'pending',
-          opencode_url: startRes.opencodeUrl,
+          opencode_url: opencodePublicUrl,
         } as SessionResponse);
       } catch (error) {
         logger.error('Failed to start pipeline on agent', error, { component: 'control-routes', operation: 'start_pipeline', session_id: sessionId });

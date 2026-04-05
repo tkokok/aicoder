@@ -27,7 +27,7 @@ class SessionListPage {
     this.init();
   }
 
-  private init(): void {
+  private async init(): Promise<void> {
     this.container = document.getElementById('session-list-container');
     this.modal = document.getElementById('delete-modal');
     this.modalInput = document.getElementById('delete-confirm-input') as HTMLInputElement | null;
@@ -36,8 +36,23 @@ class SessionListPage {
     this.modalCancelBtn = document.getElementById('delete-cancel-btn') as HTMLButtonElement | null;
     this.modalError = document.getElementById('delete-error');
 
+    await this.loadConfig();
     this.bindModalEvents();
     this.loadSessions();
+  }
+
+  private async loadConfig(): Promise<void> {
+    try {
+      const response = await fetch('/api/config');
+      if (!response.ok) return;
+      const data = (await response.json()) as { useDataPlane?: boolean };
+      if (data.useDataPlane) {
+        const agentsLink = document.getElementById('nav-agents');
+        agentsLink?.classList.remove('hidden');
+      }
+    } catch {
+      // ignore
+    }
   }
 
   private bindModalEvents(): void {

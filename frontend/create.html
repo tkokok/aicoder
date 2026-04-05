@@ -293,7 +293,16 @@
               <span id="requirements-error" class="form-error hidden" role="alert"></span>
             </div>
 
-            <div class="form-group full">
+            <div class="form-group full" id="agent-selection-group" style="display: none;">
+              <label for="agentId" class="form-label form-label-required">Agent</label>
+              <select id="agentId" name="agentId" class="form-select">
+                <option value="">Loading agents...</option>
+              </select>
+              <span id="agentId-hint" class="form-hint">Select a data plane agent. <a href="agents.html">Manage agents</a></span>
+              <span id="agentId-error" class="form-error hidden" role="alert"></span>
+            </div>
+
+            <div class="form-group full" id="advanced-options-box">
               <details class="details-box">
                 <summary class="details-summary">Advanced Options</summary>
                 <div class="details-body">
