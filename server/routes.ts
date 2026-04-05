@@ -37,6 +37,7 @@ interface CreateSessionBody {
   opencodeHeader?: unknown;
   opencodeUsername?: unknown;
   opencodePassword?: unknown;
+  reasoningEffort?: unknown;
 }
 
 interface SessionResponse {
@@ -111,20 +112,27 @@ async function initGitRepo(dir: string): Promise<void> {
   }
 }
 
-async function injectAgentModel(agentPath: string, model: string): Promise<void> {
+async function injectAgentFrontmatter(agentPath: string, model: string, reasoningEffort?: string): Promise<void> {
   const content = await readFile(agentPath, 'utf-8');
   const frontmatterRegex = /^---\n([\s\S]*?)\n---\n/;
   const match = content.match(frontmatterRegex);
-  if (!match) {
-    const newContent = `---\nmodel: ${model}\n---\n\n${content}`;
-    await writeFile(agentPath, newContent, 'utf-8');
-    return;
-  }
-  let frontmatter = match[1];
+  let frontmatter = match ? match[1] : '';
   if (/^model:/m.test(frontmatter)) {
     frontmatter = frontmatter.replace(/^model:.*$/m, `model: ${model}`);
   } else {
     frontmatter = `model: ${model}\n${frontmatter}`;
+  }
+  if (reasoningEffort) {
+    if (/^reasoning_effort:/m.test(frontmatter)) {
+      frontmatter = frontmatter.replace(/^reasoning_effort:.*$/m, `reasoning_effort: ${reasoningEffort}`);
+    } else {
+      frontmatter = `reasoning_effort: ${reasoningEffort}\n${frontmatter}`;
+    }
+  }
+  if (!match) {
+    const newContent = `---\n${frontmatter}\n---\n\n${content}`;
+    await writeFile(agentPath, newContent, 'utf-8');
+    return;
   }
   const newContent = content.replace(frontmatterRegex, `---\n${frontmatter}\n---\n`);
   await writeFile(agentPath, newContent, 'utf-8');
@@ -235,6 +243,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         opencodeHeader: request.body.opencodeHeader,
         opencodeUsername: request.body.opencodeUsername,
         opencodePassword: request.body.opencodePassword,
+        reasoningEffort: request.body.reasoningEffort,
       };
 
       const validation = validateSessionInput(input);
@@ -263,15 +272,16 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
 
       const mainModel = input.model && typeof input.model === 'string' ? input.model : 'zhipuai-coding-plan/glm-4.7-flashx';
       const subagentModel = input.subagentModel && typeof input.subagentModel === 'string' ? input.subagentModel : 'zhipuai-coding-plan/glm-4.7-flashx';
+      const reasoningEffort = input.reasoningEffort && typeof input.reasoningEffort === 'string' ? input.reasoningEffort : 'low';
       const agentsDest = join(projectDir, '.opencode', 'agent');
       try {
-        await injectAgentModel(join(agentsDest, 'AICoder.md'), mainModel);
+        await injectAgentFrontmatter(join(agentsDest, 'AICoder.md'), mainModel, reasoningEffort);
         for (const sub of ['clarify', 'design', 'task', 'dev', 'test', 'review', 'validate']) {
-          await injectAgentModel(join(agentsDest, `${sub}.md`), subagentModel);
+          await injectAgentFrontmatter(join(agentsDest, `${sub}.md`), subagentModel, reasoningEffort);
         }
-        request.log.info(`[routes] Injected agent models: main=${mainModel}, sub=${subagentModel}`);
+        request.log.info(`[routes] Injected agent frontmatter: main=${mainModel}, sub=${subagentModel}, reasoning=${reasoningEffort}`);
       } catch (err) {
-        request.log.error({ err }, '[routes] Failed to inject agent models');
+        request.log.error({ err }, '[routes] Failed to inject agent frontmatter');
       }
 
       let workspaceDir: string;
@@ -470,6 +480,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         client,
         model,
         mode: pipelineMode,
+        reasoningEffort,
       }).then((result) => {
         request.log.info(`[routes] Pipeline completed for session ${sessionId}`);
         stopProgressPolling();

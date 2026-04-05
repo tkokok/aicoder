@@ -137,6 +137,7 @@ export interface SessionInput {
   opencodeHeader?: unknown;
   opencodeUsername?: unknown;
   opencodePassword?: unknown;
+  reasoningEffort?: unknown;
 }
 
 /**
@@ -213,6 +214,12 @@ export function validateSessionInput(input: SessionInput): ValidationResult {
 
   if (input.opencodeUsername !== undefined && input.opencodeUsername !== null && typeof input.opencodeUsername === 'string' && input.opencodeUsername.trim().length > 200) {
     errors.push('OpenCode username must be at most 200 characters');
+  }
+
+  if (input.reasoningEffort !== undefined && input.reasoningEffort !== null) {
+    if (typeof input.reasoningEffort !== 'string' || !['low', 'medium', 'high'].includes(input.reasoningEffort)) {
+      errors.push('Reasoning effort must be one of: low, medium, high');
+    }
   }
 
   if (input.opencodePassword !== undefined && input.opencodePassword !== null && typeof input.opencodePassword === 'string' && input.opencodePassword.length > 500) {

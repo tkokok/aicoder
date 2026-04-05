@@ -15,6 +15,7 @@ interface ProjectFormData {
   opencodeHeader?: string;
   opencodeUsername?: string;
   opencodePassword?: string;
+  reasoningEffort?: string;
 }
 
 interface ValidationError {
@@ -311,6 +312,7 @@ function getFormData(): ProjectFormData {
   const opencodeHeader = (document.getElementById('opencodeHeader') as HTMLInputElement)?.value || '';
   const opencodeUsername = (document.getElementById('opencodeUsername') as HTMLInputElement)?.value || '';
   const opencodePassword = (document.getElementById('opencodePassword') as HTMLInputElement)?.value || '';
+  const reasoningEffort = (document.getElementById('reasoningEffort') as HTMLSelectElement)?.value || '';
 
   const formData: ProjectFormData = {
     projectName,
@@ -320,6 +322,7 @@ function getFormData(): ProjectFormData {
     model: model || undefined,
     subagentModel: subagentModel || undefined,
     opencodeEnv: opencodeEnvRadio?.value || 'external',
+    reasoningEffort: reasoningEffort || undefined,
   };
 
   if (formData.mode === 'existing' && existingPath.trim()) {

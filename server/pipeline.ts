@@ -70,6 +70,7 @@ export interface PipelineConfig {
   projectDir: string;
   agentsDir: string;
   model?: string;
+  reasoningEffort?: string;
 }
 
 export interface ExecutePipelineOptions {
@@ -82,6 +83,7 @@ export interface ExecutePipelineOptions {
   agentsDir?: string;
   model?: string;
   mode?: PipelineMode;
+  reasoningEffort?: string;
 }
 
 interface PipelineCheckpoint {
@@ -515,6 +517,7 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
     projectDir: options.projectDir,
     agentsDir: options.agentsDir ?? DEFAULT_CONFIG.agentsDir,
     model: options.model,
+    reasoningEffort: options.reasoningEffort,
   };
 
   const sessionId = options.sessionId;
@@ -653,7 +656,7 @@ async function sendPromptWithRetry(
   while (attempt < config.maxRetries) {
     attempt++;
     try {
-      await client.sendMessage(sessionId, parts, { agent: 'AICoder', model: config.model });
+      await client.sendMessage(sessionId, parts, { agent: 'AICoder', model: config.model, reasoningEffort: config.reasoningEffort });
       return;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';

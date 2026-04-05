@@ -347,9 +347,9 @@ export class OpenCodeClient {
   async sendMessage(
     sessionId: string,
     parts: PromptPart[],
-    opts?: { agent?: string; model?: string; noReply?: boolean }
+    opts?: { agent?: string; model?: string; noReply?: boolean; reasoningEffort?: string }
   ): Promise<void> {
-    const body: { parts: PromptPart[]; agent?: string; model?: { providerID: string; modelID: string }; noReply?: boolean } = { parts };
+    const body: { parts: PromptPart[]; agent?: string; model?: { providerID: string; modelID: string }; noReply?: boolean; reasoning_effort?: string } = { parts };
     if (opts?.agent) {
       body.agent = opts.agent;
     }
@@ -363,6 +363,9 @@ export class OpenCodeClient {
     }
     if (opts?.noReply) {
       body.noReply = true;
+    }
+    if (opts?.reasoningEffort) {
+      body.reasoning_effort = opts.reasoningEffort;
     }
     const textParts = parts.filter(p => p.type === 'text').map(p => (p as { type: 'text'; text: string }).text.slice(0, 100));
     log.info('client', `Sending message to session ${sessionId}, agent=${opts?.agent || 'default'}, noReply=${opts?.noReply || false}`);

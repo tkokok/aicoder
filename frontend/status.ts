@@ -304,7 +304,7 @@ class StatusPage {
     this.stopPolling();
     setTimeout(() => {
       if (this.sessionId) {
-        window.location.href = `report.html?session=${this.sessionId}`;
+        window.location.href = `report.html?id=${this.sessionId}`;
       }
     }, 2000);
   }

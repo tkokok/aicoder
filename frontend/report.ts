@@ -4,6 +4,9 @@ interface SessionMetadata {
   projectName?: string;
   createdAt?: number;
   completedAt?: number;
+  opencodeUrl?: string;
+  projectPath?: string;
+  opencodeSessionId?: string;
 }
 
 interface ReportResponse {
@@ -43,6 +46,12 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
+function buildMainAgentUrl(metadata: SessionMetadata): string | null {
+  if (!metadata.opencodeUrl || !metadata.projectPath || !metadata.opencodeSessionId) return null;
+  const base64Path = btoa(metadata.projectPath);
+  return `${metadata.opencodeUrl.replace(/\/$/, '')}/${base64Path}/session/${metadata.opencodeSessionId}`;
+}
+
 function renderMetadata(metadata: SessionMetadata): void {
   const container = document.getElementById('metadata');
   if (!container) return;
@@ -53,7 +62,7 @@ function renderMetadata(metadata: SessionMetadata): void {
       ? 'status-dot--error' 
       : '';
 
-  const items = [
+  const items: Array<{ label: string; value: string; isStatus?: boolean; isHtml?: boolean }> = [
     { label: 'Session ID', value: metadata.id },
     { label: 'Status', value: metadata.status, isStatus: true },
     { label: 'Project', value: metadata.projectName || 'Unknown' },
@@ -64,12 +73,21 @@ function renderMetadata(metadata: SessionMetadata): void {
     items.push({ label: 'Completed', value: formatDate(metadata.completedAt) });
   }
 
+  const mainAgentUrl = buildMainAgentUrl(metadata);
+  if (mainAgentUrl) {
+    items.push({
+      label: 'Main Agent',
+      value: `<a href="${escapeHtml(mainAgentUrl)}" target="_blank" style="color: var(--color-accent); text-decoration: none;">${escapeHtml(mainAgentUrl)}</a>`,
+      isHtml: true,
+    });
+  }
+
   container.innerHTML = items.map(item => `
     <div class="metadata__item">
       <div class="metadata__label">${item.label}</div>
       <div class="metadata__value${item.isStatus ? ' metadata__value--status' : ''}">
         ${item.isStatus ? `<span class="status-dot ${statusClass}"></span>` : ''}
-        ${escapeHtml(item.value)}
+        ${item.isHtml ? item.value : escapeHtml(item.value)}
       </div>
     </div>
   `).join('');
@@ -139,11 +157,26 @@ async function fetchSession(sessionId: string): Promise<{ metadata: SessionMetad
     throw new Error('Failed to fetch session');
   }
 
-  const sessionData = await metadataResponse.json() as { id: string; status: string };
+  const sessionData = await metadataResponse.json() as {
+    id: string;
+    status: string;
+    project_name?: string;
+    created_at?: number;
+    completed_at?: number;
+    opencode_url?: string;
+    project_path?: string;
+    opencode_session_id?: string;
+  };
   
   const metadata: SessionMetadata = {
     id: sessionData.id,
     status: sessionData.status,
+    projectName: sessionData.project_name,
+    createdAt: sessionData.created_at,
+    completedAt: sessionData.completed_at,
+    opencodeUrl: sessionData.opencode_url,
+    projectPath: sessionData.project_path,
+    opencodeSessionId: sessionData.opencode_session_id,
   };
 
   let report: ReportResponse | null = null;
