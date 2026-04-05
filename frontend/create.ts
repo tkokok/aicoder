@@ -5,13 +5,12 @@
 interface ProjectFormData {
   projectName: string;
   requirements: string;
-  techStack: string;
   model?: string;
   subagentModel?: string;
-  devEnv?: string;
-  testMethod?: string;
   mode?: string;
+  pipelineMode?: string;
   existingPath?: string;
+  opencodeEnv?: string;
   opencodeUrl?: string;
   opencodeHeader?: string;
   opencodeUsername?: string;
@@ -32,7 +31,7 @@ interface ApiResponse {
 
 const API_ENDPOINT = '/api/sessions';
 const MODELS_ENDPOINT = '/api/models';
-const DEFAULT_MODEL = 'kimi-for-coding/k2p5';
+const DEFAULT_MODEL = 'zhipuai-coding-plan/glm-4.7-flashx';
 
 async function fetchModels(): Promise<{ models: Array<{ id: string; name: string }>; default: string }> {
   try {
@@ -130,40 +129,6 @@ function validateRequirements(value: string): string | null {
   return null;
 }
 
-function validateTechStack(value: string): string | null {
-  const trimmed = value.trim();
-  
-  if (trimmed.length === 0) {
-    return 'Tech stack is required';
-  }
-  
-  if (trimmed.length > 200) {
-    return 'Tech stack must be at most 200 characters';
-  }
-  
-  return null;
-}
-
-function validateDevEnv(value: string): string | null {
-  const trimmed = value.trim();
-  
-  if (trimmed.length > 200) {
-    return 'Dev environment must be at most 200 characters';
-  }
-  
-  return null;
-}
-
-function validateTestMethod(value: string): string | null {
-  const trimmed = value.trim();
-  
-  if (trimmed.length > 200) {
-    return 'Test method must be at most 200 characters';
-  }
-  
-  return null;
-}
-
 function validateOpencodeUrl(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -220,26 +185,7 @@ function validateForm(formData: ProjectFormData): ValidationError[] {
     errors.push({ field: 'requirements', message: requirementsError });
   }
 
-  const techStackError = validateTechStack(formData.techStack);
-  if (techStackError) {
-    errors.push({ field: 'techStack', message: techStackError });
-  }
-
-  if (formData.devEnv) {
-    const devEnvError = validateDevEnv(formData.devEnv);
-    if (devEnvError) {
-      errors.push({ field: 'devEnv', message: devEnvError });
-    }
-  }
-
-  if (formData.testMethod) {
-    const testMethodError = validateTestMethod(formData.testMethod);
-    if (testMethodError) {
-      errors.push({ field: 'testMethod', message: testMethodError });
-    }
-  }
-
-  if (formData.opencodeUrl) {
+  if (formData.opencodeEnv !== 'random' && formData.opencodeUrl) {
     const urlError = validateOpencodeUrl(formData.opencodeUrl);
     if (urlError) errors.push({ field: 'opencodeUrl', message: urlError });
   }
@@ -288,7 +234,7 @@ function clearFieldError(fieldId: string): void {
 }
 
 function clearAllErrors(): void {
-  const fields = ['projectName', 'existingPath', 'requirements', 'techStack', 'devEnv', 'testMethod', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
+  const fields = ['projectName', 'existingPath', 'requirements', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
   fields.forEach(field => clearFieldError(field));
 
   const errorContainer = document.getElementById('error-container') as HTMLElement;
@@ -354,14 +300,13 @@ function setSubmitButtonLoading(loading: boolean): void {
 
 function getFormData(): ProjectFormData {
   const modeRadio = document.querySelector('input[name="mode"]:checked') as HTMLInputElement | null;
+  const pipelineModeRadio = document.querySelector('input[name="pipelineMode"]:checked') as HTMLInputElement | null;
+  const opencodeEnvRadio = document.querySelector('input[name="opencodeEnv"]:checked') as HTMLInputElement | null;
   const projectName = (document.getElementById('projectName') as HTMLInputElement)?.value || '';
   const existingPath = (document.getElementById('existingPath') as HTMLInputElement)?.value || '';
   const requirements = (document.getElementById('requirements') as HTMLTextAreaElement)?.value || '';
-  const techStack = (document.getElementById('techStack') as HTMLInputElement)?.value || '';
   const model = (document.getElementById('model') as HTMLSelectElement)?.value || '';
   const subagentModel = (document.getElementById('subagentModel') as HTMLSelectElement)?.value || '';
-  const devEnv = (document.getElementById('devEnv') as HTMLInputElement)?.value || '';
-  const testMethod = (document.getElementById('testMethod') as HTMLInputElement)?.value || '';
   const opencodeUrl = (document.getElementById('opencodeUrl') as HTMLInputElement)?.value || '';
   const opencodeHeader = (document.getElementById('opencodeHeader') as HTMLInputElement)?.value || '';
   const opencodeUsername = (document.getElementById('opencodeUsername') as HTMLInputElement)?.value || '';
@@ -370,25 +315,18 @@ function getFormData(): ProjectFormData {
   const formData: ProjectFormData = {
     projectName,
     requirements,
-    techStack,
     mode: modeRadio?.value || 'new',
+    pipelineMode: pipelineModeRadio?.value || 'standard',
     model: model || undefined,
     subagentModel: subagentModel || undefined,
+    opencodeEnv: opencodeEnvRadio?.value || 'external',
   };
 
   if (formData.mode === 'existing' && existingPath.trim()) {
     formData.existingPath = existingPath.trim();
   }
 
-  if (devEnv.trim()) {
-    formData.devEnv = devEnv;
-  }
-
-  if (testMethod.trim()) {
-    formData.testMethod = testMethod;
-  }
-
-  if (opencodeUrl.trim()) {
+  if (formData.opencodeEnv !== 'random' && opencodeUrl.trim()) {
     formData.opencodeUrl = opencodeUrl.trim();
   }
   if (opencodeHeader.trim()) {
@@ -471,7 +409,7 @@ function initForm(): void {
     form.addEventListener('submit', handleFormSubmit);
   }
   
-  const inputs = ['projectName', 'existingPath', 'requirements', 'techStack', 'devEnv', 'testMethod', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
+  const inputs = ['projectName', 'existingPath', 'requirements', 'opencodeUrl', 'opencodeHeader', 'opencodeUsername', 'opencodePassword'];
   inputs.forEach(inputId => {
     const input = document.getElementById(inputId) as HTMLInputElement | HTMLTextAreaElement;
 
@@ -490,15 +428,6 @@ function initForm(): void {
             break;
           case 'requirements':
             error = validateRequirements(value);
-            break;
-          case 'techStack':
-            error = validateTechStack(value);
-            break;
-          case 'devEnv':
-            error = validateDevEnv(value);
-            break;
-          case 'testMethod':
-            error = validateTestMethod(value);
             break;
           case 'opencodeUrl':
             error = validateOpencodeUrl(value);
@@ -542,6 +471,36 @@ function initForm(): void {
       }
     });
   });
+
+  const opencodeEnvRadios = document.querySelectorAll('input[name="opencodeEnv"]');
+  opencodeEnvRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      const selected = (document.querySelector('input[name="opencodeEnv"]:checked') as HTMLInputElement | null)?.value || 'external';
+      const externalConfig = document.getElementById('external-config');
+      if (externalConfig) {
+        if (selected === 'external') {
+          externalConfig.classList.remove('hidden');
+        } else {
+          externalConfig.classList.add('hidden');
+        }
+      }
+    });
+  });
+
+  const demoBtn = document.getElementById('demo-btn') as HTMLButtonElement | null;
+  if (demoBtn) {
+    demoBtn.addEventListener('click', () => {
+      const ts = Math.floor(Date.now() / 1000);
+      const projectNameInput = document.getElementById('projectName') as HTMLInputElement;
+      const requirementsInput = document.getElementById('requirements') as HTMLTextAreaElement;
+      const pipelineModeFast = document.getElementById('pipeline-mode-fast') as HTMLInputElement;
+      if (projectNameInput) projectNameInput.value = `todo-list-demo-${ts}`;
+      if (requirementsInput) requirementsInput.value = '写一个todo list demo，用 html 实现，细节你自己定';
+      if (pipelineModeFast) pipelineModeFast.checked = true;
+      clearFieldError('projectName');
+      clearFieldError('requirements');
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', initForm);

@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db, transaction, generateId } from './db';
 import { validateSessionInput, SessionInput } from './validation';
 import { OpenCodeManager, OpenCodeClient, type SSEEvent } from './opencode';
-import { executePipeline, readStatusFile, STAGE_ORDER } from './pipeline';
+import { executePipeline, readStatusFile, STAGE_ORDER, getStageOrder, type PipelineMode } from './pipeline';
 import { mkdir, cp, access, rm, stat, readFile, writeFile } from 'fs/promises';
 import { join, dirname, basename } from 'path';
 import { homedir } from 'os';
@@ -24,13 +24,15 @@ const MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
 interface CreateSessionBody {
   projectName: unknown;
   requirements: unknown;
-  techStack: unknown;
+  techStack?: unknown;
   devEnv?: unknown;
   testMethod?: unknown;
   model?: unknown;
   subagentModel?: unknown;
   mode?: unknown;
+  pipelineMode?: unknown;
   existingPath?: unknown;
+  opencodeEnv?: unknown;
   opencodeUrl?: unknown;
   opencodeHeader?: unknown;
   opencodeUsername?: unknown;
@@ -198,13 +200,13 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       await mkdir(tempDir, { recursive: true });
       const { client } = await OpenCodeManager.getOrCreate(tempDir);
       const models = await client.getModels();
-      modelsCache = { models, default: 'kimi-for-coding/k2p5', fetchedAt: Date.now() };
+      modelsCache = { models, default: 'zhipuai-coding-plan/glm-4.7-flashx', fetchedAt: Date.now() };
       return reply.send({ models, default: modelsCache.default });
     } catch (error) {
       fastify.log.error({ err: error }, 'Failed to fetch models');
       return reply.status(502).send({
         models: [],
-        default: 'kimi-for-coding/k2p5',
+        default: 'zhipuai-coding-plan/glm-4.7-flashx',
         error: 'Failed to fetch models from OpenCode',
       });
     } finally {
@@ -226,7 +228,9 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         model: request.body.model,
         subagentModel: request.body.subagentModel,
         mode: request.body.mode,
+        pipelineMode: request.body.pipelineMode,
         existingPath: request.body.existingPath,
+        opencodeEnv: request.body.opencodeEnv,
         opencodeUrl: request.body.opencodeUrl,
         opencodeHeader: request.body.opencodeHeader,
         opencodeUsername: request.body.opencodeUsername,
@@ -257,8 +261,8 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         });
       }
 
-      const mainModel = input.model && typeof input.model === 'string' ? input.model : 'kimi-for-coding/k2p5';
-      const subagentModel = input.subagentModel && typeof input.subagentModel === 'string' ? input.subagentModel : 'kimi-for-coding/k2p5';
+      const mainModel = input.model && typeof input.model === 'string' ? input.model : 'zhipuai-coding-plan/glm-4.7-flashx';
+      const subagentModel = input.subagentModel && typeof input.subagentModel === 'string' ? input.subagentModel : 'zhipuai-coding-plan/glm-4.7-flashx';
       const agentsDest = join(projectDir, '.opencode', 'agent');
       try {
         await injectAgentModel(join(agentsDest, 'AICoder.md'), mainModel);
@@ -343,21 +347,9 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         }
       }
 
-      if (input.opencodeUrl && typeof input.opencodeUrl === 'string' && input.opencodeUrl.trim()) {
-        isExternal = true;
-        opencodeUrl = input.opencodeUrl.trim();
-        try {
-          const external = OpenCodeManager.getOrCreateExternal(projectDir, opencodeUrl, { extraHeaders, auth });
-          client = external.client;
-          request.log.info(`[routes] Using external OpenCode at ${opencodeUrl}`);
-          const opencodeSession = await client.createSession({ title: projectName });
-          opencodeSessionId = opencodeSession.id;
-          request.log.info(`[routes] OpenCode session created on external server: ${opencodeSessionId}`);
-        } catch (error) {
-          request.log.error({ err: error }, '[routes] Failed to connect to external OpenCode');
-          return reply.status(502).send({ error: 'Failed to connect to external OpenCode server' });
-        }
-      } else {
+      const opencodeEnv = typeof input.opencodeEnv === 'string' ? input.opencodeEnv.trim() : 'external';
+
+      if (opencodeEnv === 'random') {
         try {
           request.log.info(`[routes] Getting/creating OpenCode process for: ${projectDir}`);
           const created = await OpenCodeManager.getOrCreate(projectDir);
@@ -376,6 +368,22 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
           return reply.status(502).send({
             error: 'Failed to create session with OpenCode',
           });
+        }
+      } else {
+        isExternal = true;
+        opencodeUrl = input.opencodeUrl && typeof input.opencodeUrl === 'string' && input.opencodeUrl.trim()
+          ? input.opencodeUrl.trim()
+          : 'http://127.0.0.1:4096';
+        try {
+          const external = OpenCodeManager.getOrCreateExternal(projectDir, opencodeUrl, { extraHeaders, auth });
+          client = external.client;
+          request.log.info(`[routes] Using external OpenCode at ${opencodeUrl}`);
+          const opencodeSession = await client.createSession({ title: projectName });
+          opencodeSessionId = opencodeSession.id;
+          request.log.info(`[routes] OpenCode session created on external server: ${opencodeSessionId}`);
+        } catch (error) {
+          request.log.error({ err: error }, '[routes] Failed to connect to external OpenCode');
+          return reply.status(502).send({ error: 'Failed to connect to external OpenCode server' });
         }
       }
 
@@ -407,9 +415,9 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
             sessionId,
             projectName,
             requireString(input.requirements, 'requirements'),
-            requireString(input.techStack, 'techStack'),
-            input.devEnv ? requireString(input.devEnv, 'devEnv') : '',
-            input.testMethod ? requireString(input.testMethod, 'testMethod') : '',
+            '',
+            '',
+            '',
             mainModel,
             subagentModel
           );
@@ -423,6 +431,9 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
 
       const model = mainModel;
       const userInput = requireString(input.requirements, 'requirements');
+      const rawMode = typeof input.pipelineMode === 'string' ? input.pipelineMode.trim() : 'standard';
+      const pipelineMode: PipelineMode = ['full', 'standard', 'fast'].includes(rawMode) ? (rawMode as PipelineMode) : 'standard';
+      const stageOrder = getStageOrder(pipelineMode);
 
       const unsubscribeSSE = client.subscribeEvents((event) => {
         try {
@@ -435,6 +446,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         sessionId,
         opencodeSessionId,
         projectDir,
+        stageOrder,
         (event) => {
           try {
             (fastify as any).broadcastEvent(event);
@@ -457,6 +469,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         projectDir,
         client,
         model,
+        mode: pipelineMode,
       }).then((result) => {
         request.log.info(`[routes] Pipeline completed for session ${sessionId}`);
         stopProgressPolling();
@@ -610,6 +623,7 @@ function startProgressPolling(
   sessionId: string,
   opencodeSessionId: string,
   projectDir: string,
+  stageOrder: import('./pipeline').PipelineStage[],
   broadcast: (event: SSEEvent) => void
 ): () => void {
   let running = true;
@@ -623,12 +637,15 @@ function startProgressPolling(
       const statusFromYaml = await readStatusFile(sessionId, projectDir);
       if (statusFromYaml) {
         currentStage = statusFromYaml.pipeline.current_stage;
-        for (const stage of STAGE_ORDER) {
+        const effectiveOrder = statusFromYaml.stage_order && statusFromYaml.stage_order.length > 0
+          ? statusFromYaml.stage_order
+          : stageOrder;
+        for (const stage of effectiveOrder) {
           stagesSnapshot[stage] = { status: statusFromYaml.stages[stage].status };
         }
       } else {
         let completedStages = 0;
-        for (const stage of STAGE_ORDER) {
+        for (const stage of stageOrder) {
           try {
             await access(join(projectDir, `run-${sessionId}`, `${stage}.json`));
             completedStages++;
@@ -636,9 +653,9 @@ function startProgressPolling(
             break;
           }
         }
-        currentStage = completedStages >= STAGE_ORDER.length ? 'completed' : STAGE_ORDER[completedStages];
-        for (let i = 0; i < STAGE_ORDER.length; i++) {
-          const stage = STAGE_ORDER[i];
+        currentStage = completedStages >= stageOrder.length ? 'completed' : stageOrder[completedStages];
+        for (let i = 0; i < stageOrder.length; i++) {
+          const stage = stageOrder[i];
           if (i < completedStages) {
             stagesSnapshot[stage] = { status: 'completed' };
           } else if (i === completedStages && currentStage !== 'completed') {
@@ -648,8 +665,8 @@ function startProgressPolling(
           }
         }
       }
-      const completedStages = STAGE_ORDER.filter((s) => stagesSnapshot[s].status === 'completed').length;
-      const progressPercent = Math.round((completedStages / STAGE_ORDER.length) * 100);
+      const completedStages = stageOrder.filter((s) => stagesSnapshot[s].status === 'completed').length;
+      const progressPercent = Math.round((completedStages / stageOrder.length) * 100);
       const currentAgent = currentStage === 'completed' ? 'completed' : `${currentStage} agent`;
 
       // Get latest assistant message text (search backwards for non-empty content)

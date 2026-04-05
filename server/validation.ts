@@ -124,13 +124,15 @@ export function validateTestMethod(testMethod: unknown): true | string {
 export interface SessionInput {
   projectName: unknown;
   requirements: unknown;
-  techStack: unknown;
+  techStack?: unknown;
   devEnv?: unknown;
   testMethod?: unknown;
   model?: unknown;
   subagentModel?: unknown;
   mode?: unknown;
+  pipelineMode?: unknown;
   existingPath?: unknown;
+  opencodeEnv?: unknown;
   opencodeUrl?: unknown;
   opencodeHeader?: unknown;
   opencodeUsername?: unknown;
@@ -190,21 +192,6 @@ export function validateSessionInput(input: SessionInput): ValidationResult {
   const requirementsResult = validateRequirements(input.requirements);
   if (requirementsResult !== true) {
     errors.push(requirementsResult);
-  }
-
-  const techStackResult = validateTechStack(input.techStack);
-  if (techStackResult !== true) {
-    errors.push(techStackResult);
-  }
-
-  const devEnvResult = validateDevEnv(input.devEnv);
-  if (devEnvResult !== true) {
-    errors.push(devEnvResult);
-  }
-
-  const testMethodResult = validateTestMethod(input.testMethod);
-  if (testMethodResult !== true) {
-    errors.push(testMethodResult);
   }
 
   const modeResult = validateMode(input.mode, input.existingPath);

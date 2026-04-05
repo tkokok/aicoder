@@ -18,8 +18,9 @@
     <main class="page-content">
       <div class="container">
         <div class="card" style="max-width: 800px; margin: 0 auto;">
-          <div class="card-header">
+          <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
             <h2 class="card-title">Create New Project</h2>
+            <a href="index.html" class="btn btn-secondary" style="text-decoration: none;">← Back to Home</a>
           </div>
           
           <div class="card-body">
@@ -47,24 +48,55 @@
               </div>
 
               <div class="form-group">
-                <label for="projectName" class="form-label form-label-required">
-                  Project Name
-                </label>
-                <input
-                  type="text"
-                  id="projectName"
-                  name="projectName"
-                  class="form-input"
-                  placeholder="my-awesome-project"
-                  required
-                  minlength="5"
-                  maxlength="100"
-                  aria-describedby="projectName-hint projectName-error"
-                >
-                <span id="projectName-hint" class="form-hint">
-                  Lowercase letters, numbers, underscore, hyphen. Must start with a letter and end with a letter or number. Min 5 characters.
+                <label class="form-label form-label-required">Pipeline Mode</label>
+                <div class="form-radio-group" style="display: flex; gap: var(--space-4); margin-top: var(--space-2); flex-wrap: wrap;">
+                  <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                    <input type="radio" name="pipelineMode" value="standard" id="pipeline-mode-standard" checked>
+                    <span>Standard (clarify → design → dev → review)</span>
+                  </label>
+                  <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                    <input type="radio" name="pipelineMode" value="fast" id="pipeline-mode-fast">
+                    <span>Fast (clarify → dev)</span>
+                  </label>
+                  <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                    <input type="radio" name="pipelineMode" value="full" id="pipeline-mode-full">
+                    <span>Full (7 stages)</span>
+                  </label>
+                </div>
+                <span id="pipelineMode-hint" class="form-hint">
+                  Choose how many pipeline stages to run. Fast mode is best for quick demos.
                 </span>
-                <span id="projectName-error" class="form-error hidden" role="alert"></span>
+              </div>
+
+              <div class="form-group" style="display: flex; gap: var(--space-4); align-items: flex-end;">
+                <div style="flex: 1;">
+                  <label for="projectName" class="form-label form-label-required">
+                    Project Name
+                  </label>
+                  <input
+                    type="text"
+                    id="projectName"
+                    name="projectName"
+                    class="form-input"
+                    placeholder="my-awesome-project"
+                    required
+                    minlength="5"
+                    maxlength="100"
+                    aria-describedby="projectName-hint projectName-error"
+                  >
+                  <span id="projectName-hint" class="form-hint">
+                    Lowercase letters, numbers, underscore, hyphen. Must start with a letter and end with a letter or number. Min 5 characters.
+                  </span>
+                  <span id="projectName-error" class="form-error hidden" role="alert"></span>
+                </div>
+                <button
+                  type="button"
+                  id="demo-btn"
+                  class="btn btn-secondary"
+                  style="white-space: nowrap;"
+                >
+                  Create Todo Demo
+                </button>
               </div>
 
               <div class="form-group hidden" id="existingPath-group">
@@ -105,26 +137,6 @@
               </div>
 
               <div class="form-group">
-                <label for="techStack" class="form-label form-label-required">
-                  Tech Stack
-                </label>
-                <input
-                  type="text"
-                  id="techStack"
-                  name="techStack"
-                  class="form-input"
-                  placeholder="React, TypeScript, Node.js, PostgreSQL"
-                  required
-                  maxlength="200"
-                  aria-describedby="techStack-hint techStack-error"
-                >
-                <span id="techStack-hint" class="form-hint">
-                  Technologies and frameworks to use (max 200 characters)
-                </span>
-                <span id="techStack-error" class="form-error hidden" role="alert"></span>
-              </div>
-
-              <div class="form-group">
                 <label for="model" class="form-label">
                   Main Agent Model
                 </label>
@@ -158,114 +170,92 @@
                 </span>
               </div>
 
-              <div class="form-group">
-                <label for="devEnv" class="form-label">
-                  Development Environment
-                </label>
-                <input
-                  type="text"
-                  id="devEnv"
-                  name="devEnv"
-                  class="form-input"
-                  placeholder="VS Code, Docker, macOS"
-                  maxlength="200"
-                  aria-describedby="devEnv-hint devEnv-error"
-                >
-                <span id="devEnv-hint" class="form-hint">
-                  Optional: IDE, container setup, OS (max 200 characters)
-                </span>
-                <span id="devEnv-error" class="form-error hidden" role="alert"></span>
-              </div>
-
-              <div class="form-group">
-                <label for="testMethod" class="form-label">
-                  Test Method
-                </label>
-                <input
-                  type="text"
-                  id="testMethod"
-                  name="testMethod"
-                  class="form-input"
-                  placeholder="Jest, Cypress, Playwright"
-                  maxlength="200"
-                  aria-describedby="testMethod-hint testMethod-error"
-                >
-                <span id="testMethod-hint" class="form-hint">
-                  Optional: Testing frameworks and tools (max 200 characters)
-                </span>
-                <span id="testMethod-error" class="form-error hidden" role="alert"></span>
-              </div>
-
               <div class="card" style="border: 1px solid var(--color-neutral-200); margin-top: var(--space-6);">
                 <div class="card-header" style="padding: var(--space-4); border-bottom: 1px solid var(--color-neutral-200); background: var(--color-neutral-50);">
-                  <h3 class="card-title" style="font-size: var(--font-size-base); margin: 0;">External OpenCode Environment (Optional)</h3>
+                  <h3 class="card-title" style="font-size: var(--font-size-base); margin: 0;">OpenCode Environment</h3>
                 </div>
                 <div class="card-body" style="padding: var(--space-4);">
                   <div class="form-group">
-                    <label for="opencodeUrl" class="form-label">
-                      OpenCode URL
-                    </label>
-                    <input
-                      type="url"
-                      id="opencodeUrl"
-                      name="opencodeUrl"
-                      class="form-input"
-                      placeholder="http://localhost:3000"
-                      aria-describedby="opencodeUrl-hint opencodeUrl-error"
-                    >
-                    <span id="opencodeUrl-hint" class="form-hint">
-                      Optional: URL of an existing OpenCode server. Leave blank to start a temporary local server.
-                    </span>
-                    <span id="opencodeUrl-error" class="form-error hidden" role="alert"></span>
+                    <label class="form-label">Environment</label>
+                    <div class="form-radio-group" style="display: flex; gap: var(--space-4); margin-top: var(--space-2); flex-wrap: wrap;">
+                      <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                        <input type="radio" name="opencodeEnv" value="external" id="opencode-env-external" checked>
+                        <span>External (default: 127.0.0.1:4096)</span>
+                      </label>
+                      <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                        <input type="radio" name="opencodeEnv" value="random" id="opencode-env-random">
+                        <span>Random (temporary local server)</span>
+                      </label>
+                    </div>
                   </div>
 
-                  <div class="form-group">
-                    <label for="opencodeHeader" class="form-label">
-                      Custom Header
-                    </label>
-                    <input
-                      type="text"
-                      id="opencodeHeader"
-                      name="opencodeHeader"
-                      class="form-input"
-                      placeholder="X-Auth-Token: mytoken"
-                      aria-describedby="opencodeHeader-hint opencodeHeader-error"
-                    >
-                    <span id="opencodeHeader-hint" class="form-hint">
-                      Optional: Custom HTTP header in "Key: Value" format
-                    </span>
-                    <span id="opencodeHeader-error" class="form-error hidden" role="alert"></span>
-                  </div>
-
-                  <div class="form-row">
+                  <div id="external-config">
                     <div class="form-group">
-                      <label for="opencodeUsername" class="form-label">
-                        Username
+                      <label for="opencodeUrl" class="form-label">
+                        OpenCode URL
                       </label>
                       <input
-                        type="text"
-                        id="opencodeUsername"
-                        name="opencodeUsername"
+                        type="url"
+                        id="opencodeUrl"
+                        name="opencodeUrl"
                         class="form-input"
-                        placeholder="user"
-                        aria-describedby="opencodeUsername-error"
+                        value="http://127.0.0.1:4096"
+                        aria-describedby="opencodeUrl-hint opencodeUrl-error"
                       >
-                      <span id="opencodeUsername-error" class="form-error hidden" role="alert"></span>
+                      <span id="opencodeUrl-hint" class="form-hint">
+                        URL of the OpenCode server.
+                      </span>
+                      <span id="opencodeUrl-error" class="form-error hidden" role="alert"></span>
                     </div>
 
                     <div class="form-group">
-                      <label for="opencodePassword" class="form-label">
-                        Password
+                      <label for="opencodeHeader" class="form-label">
+                        Custom Header
                       </label>
                       <input
-                        type="password"
-                        id="opencodePassword"
-                        name="opencodePassword"
+                        type="text"
+                        id="opencodeHeader"
+                        name="opencodeHeader"
                         class="form-input"
-                        placeholder="password"
-                        aria-describedby="opencodePassword-error"
+                        placeholder="X-Auth-Token: mytoken"
+                        aria-describedby="opencodeHeader-hint opencodeHeader-error"
                       >
-                      <span id="opencodePassword-error" class="form-error hidden" role="alert"></span>
+                      <span id="opencodeHeader-hint" class="form-hint">
+                        Optional: Custom HTTP header in "Key: Value" format
+                      </span>
+                      <span id="opencodeHeader-error" class="form-error hidden" role="alert"></span>
+                    </div>
+
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label for="opencodeUsername" class="form-label">
+                          Username
+                        </label>
+                        <input
+                          type="text"
+                          id="opencodeUsername"
+                          name="opencodeUsername"
+                          class="form-input"
+                          placeholder="user"
+                          aria-describedby="opencodeUsername-error"
+                        >
+                        <span id="opencodeUsername-error" class="form-error hidden" role="alert"></span>
+                      </div>
+
+                      <div class="form-group">
+                        <label for="opencodePassword" class="form-label">
+                          Password
+                        </label>
+                        <input
+                          type="password"
+                          id="opencodePassword"
+                          name="opencodePassword"
+                          class="form-input"
+                          placeholder="password"
+                          aria-describedby="opencodePassword-error"
+                        >
+                        <span id="opencodePassword-error" class="form-error hidden" role="alert"></span>
+                      </div>
                     </div>
                   </div>
                 </div>
