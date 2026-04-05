@@ -5,7 +5,7 @@
  * main agent to autonomously execute the entire pipeline.
  */
 
-import type { PipelineStage, PipelineMode } from '../pipeline';
+import type { PipelineStage, PipelineMode } from '../shared/types.js';
 
 export interface PlaybookContext {
   mode: PipelineMode;
