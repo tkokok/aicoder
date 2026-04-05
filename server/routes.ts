@@ -8,6 +8,7 @@ import { join, dirname, basename } from 'path';
 import { homedir } from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { logger, createSessionLogger } from './logger';
 
 const execAsync = promisify(exec);
 
@@ -91,14 +92,16 @@ async function createProjectDirectory(projectName: string): Promise<string> {
 
   try {
     await cp(agentsSrc, agentsDest, { recursive: true, force: true });
-  } catch {
-    // ignore copy errors
+  } catch (error) {
+    logger.warn('Failed to copy agents directory, continuing...', { component: 'routes', operation: 'copy_agents', error: error instanceof Error ? error.message : String(error) });
+    // Continue - agents may already exist or be created later
   }
 
   try {
     await cp(schemasSrc, schemasDest, { recursive: true, force: true });
-  } catch {
-    // ignore copy errors
+  } catch (error) {
+    logger.warn('Failed to copy schemas directory, continuing...', { component: 'routes', operation: 'copy_schemas', error: error instanceof Error ? error.message : String(error) });
+    // Continue - schemas may already exist or be created later
   }
 
   return baseDir;
@@ -107,8 +110,9 @@ async function createProjectDirectory(projectName: string): Promise<string> {
 async function initGitRepo(dir: string): Promise<void> {
   try {
     await execAsync('git init', { cwd: dir });
-  } catch {
-    // ignore errors
+  } catch (error) {
+    logger.warn('Failed to initialize git repo, continuing...', { component: 'routes', operation: 'git_init', error: error instanceof Error ? error.message : String(error) });
+    // Continue - git is optional for new projects
   }
 }
 
@@ -256,15 +260,15 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
 
       const projectName = requireString(input.projectName, 'projectName');
       const mode = typeof input.mode === 'string' && input.mode.trim() === 'existing' ? 'existing' : 'new';
-      request.log.info(`[routes] Creating session for project: ${projectName} (mode=${mode})`);
+      logger.info(`Creating session for project: ${projectName}`, { component: 'routes', operation: 'create_session', project_name: projectName, mode });
 
       let projectDir: string;
 
       try {
         projectDir = await createProjectDirectory(projectName);
-        request.log.info(`[routes] Project directory created: ${projectDir}`);
+        logger.info(`Project directory created: ${projectDir}`, { component: 'routes', operation: 'create_project_dir', project_name: projectName });
       } catch (error) {
-        request.log.error({ err: error }, '[routes] Failed to create project directory');
+        logger.error('Failed to create project directory', error, { component: 'routes', operation: 'create_project_dir', project_name: projectName });
         return reply.status(500).send({
           error: 'Failed to create project directory',
         });
@@ -279,9 +283,9 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         for (const sub of ['clarify', 'design', 'task', 'dev', 'test', 'review', 'validate']) {
           await injectAgentFrontmatter(join(agentsDest, `${sub}.md`), subagentModel, reasoningEffort);
         }
-        request.log.info(`[routes] Injected agent frontmatter: main=${mainModel}, sub=${subagentModel}, reasoning=${reasoningEffort}`);
+        logger.info(`Injected agent frontmatter`, { component: 'routes', operation: 'inject_frontmatter', main_model: mainModel, subagent_model: subagentModel, reasoning_effort: reasoningEffort });
       } catch (err) {
-        request.log.error({ err }, '[routes] Failed to inject agent frontmatter');
+        logger.error('Failed to inject agent frontmatter', err, { component: 'routes', operation: 'inject_frontmatter' });
       }
 
       let workspaceDir: string;
@@ -318,16 +322,16 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
             try {
               await execAsync(`git worktree add "${workspaceDir}" ${branchName}`, { cwd: existingPath });
             } catch (err2: any) {
-              request.log.error({ err: err2 }, '[routes] Failed to add git worktree with existing branch');
+              logger.error('Failed to add git worktree with existing branch', err2, { component: 'routes', operation: 'git_worktree', branch_name: branchName });
               return reply.status(500).send({ error: 'Failed to create git worktree from existing project' });
             }
           } else {
-            request.log.error({ err }, '[routes] Failed to add git worktree');
+            logger.error('Failed to add git worktree', err, { component: 'routes', operation: 'git_worktree', branch_name: branchName });
             return reply.status(500).send({ error: 'Failed to create git worktree from existing project' });
           }
         }
         repoName = await getGitRepoName(existingPath);
-        request.log.info(`[routes] Created worktree ${workspaceDir} from ${existingPath} (branch=${branchName}), repoName=${repoName}`);
+        logger.info(`Created worktree`, { component: 'routes', operation: 'git_worktree', workspace_dir: workspaceDir, existing_path: existingPath, branch_name: branchName, repo_name: repoName });
       } else {
         workspaceDir = join(projectDir, 'workspace');
         await initGitRepo(workspaceDir);
@@ -361,20 +365,20 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
 
       if (opencodeEnv === 'random') {
         try {
-          request.log.info(`[routes] Getting/creating OpenCode process for: ${projectDir}`);
+          logger.info(`Getting/creating OpenCode process`, { component: 'routes', operation: 'opencode_create', project_dir: projectDir });
           const created = await OpenCodeManager.getOrCreate(projectDir);
           client = created.client;
-          request.log.info(`[routes] OpenCode process ready at ${created.process.url}`);
+          logger.info(`OpenCode process ready`, { component: 'routes', operation: 'opencode_ready', opencode_url: created.process.url });
           opencodeUrl = created.process.url;
 
-          request.log.info(`[routes] Creating OpenCode session with title: ${projectName}`);
+          logger.info(`Creating OpenCode session with title: ${projectName}`, { component: 'routes', operation: 'opencode_session', project_name: projectName });
           const opencodeSession = await client.createSession({
             title: projectName,
           });
           opencodeSessionId = opencodeSession.id;
-          request.log.info(`[routes] OpenCode session created: ${opencodeSessionId}`);
+          logger.info(`OpenCode session created`, { component: 'routes', operation: 'opencode_session', opencode_session_id: opencodeSessionId });
         } catch (error) {
-          request.log.error({ err: error }, '[routes] Failed to create OpenCode session');
+          logger.error('Failed to create OpenCode session', error, { component: 'routes', operation: 'opencode_create' });
           return reply.status(502).send({
             error: 'Failed to create session with OpenCode',
           });
@@ -387,18 +391,18 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         try {
           const external = OpenCodeManager.getOrCreateExternal(projectDir, opencodeUrl, { extraHeaders, auth });
           client = external.client;
-          request.log.info(`[routes] Using external OpenCode at ${opencodeUrl}`);
+          logger.info(`Using external OpenCode`, { component: 'routes', operation: 'opencode_external', opencode_url: opencodeUrl });
           const opencodeSession = await client.createSession({ title: projectName });
           opencodeSessionId = opencodeSession.id;
-          request.log.info(`[routes] OpenCode session created on external server: ${opencodeSessionId}`);
+          logger.info(`OpenCode session created on external server`, { component: 'routes', operation: 'opencode_session', opencode_session_id: opencodeSessionId });
         } catch (error) {
-          request.log.error({ err: error }, '[routes] Failed to connect to external OpenCode');
+          logger.error('Failed to connect to external OpenCode', error, { component: 'routes', operation: 'opencode_external', opencode_url: opencodeUrl });
           return reply.status(502).send({ error: 'Failed to connect to external OpenCode server' });
         }
       }
 
       const sessionId = generateId();
-      request.log.info(`[routes] AICoder session created: ${sessionId} (opencode: ${opencodeSessionId})`);
+      logger.info(`AICoder session created`, { component: 'routes', operation: 'session_created', session_id: sessionId, opencode_session_id: opencodeSessionId });
 
       try {
         transaction(() => {
@@ -433,7 +437,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
           );
         });
       } catch (error) {
-        request.log.error({ err: error }, 'Failed to create session in database');
+        logger.error('Failed to create session in database', error, { component: 'routes', operation: 'db_insert', session_id: sessionId });
         return reply.status(500).send({
           error: 'Failed to create session',
         });
@@ -466,11 +470,12 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
 
       const maybeShutdownTempProcess = () => {
         if (!isExternal && OpenCodeManager.isManagedProcess(projectDir)) {
-          request.log.info(`[routes] Shutting down temporary OpenCode process for ${sessionId}`);
+          logger.info(`Shutting down temporary OpenCode process`, { component: 'routes', operation: 'shutdown_process', session_id: sessionId });
           OpenCodeManager.shutdown(projectDir);
         }
       };
 
+      const sessionLogger = createSessionLogger(sessionId);
       executePipeline({
         sessionId,
         opencodeSessionId,
@@ -482,7 +487,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         mode: pipelineMode,
         reasoningEffort,
       }).then((result) => {
-        request.log.info(`[routes] Pipeline completed for session ${sessionId}`);
+        sessionLogger.info(`Pipeline completed`, { operation: 'pipeline_complete' });
         stopProgressPolling();
         maybeShutdownTempProcess();
         const reportMd = JSON.stringify(result, null, 2);
@@ -502,7 +507,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         } catch {}
         unsubscribeSSE();
       }).catch((error) => {
-        request.log.error({ err: error }, `[routes] Pipeline failed for session ${sessionId}`);
+        sessionLogger.error(`Pipeline failed`, error, { operation: 'pipeline_fail' });
         stopProgressPolling();
         maybeShutdownTempProcess();
         transaction(() => {
@@ -584,7 +589,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       try {
         await rm(session.project_path, { recursive: true, force: true });
       } catch (err) {
-        request.log.warn({ err }, `Failed to remove project directory: ${session.project_path}`);
+        logger.warn(`Failed to remove project directory`, { component: 'routes', operation: 'delete_session', session_id: id, project_path: session.project_path, error: err instanceof Error ? err.message : String(err) });
       }
 
       return reply.status(204).send();

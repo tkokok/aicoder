@@ -8,6 +8,7 @@ import websocketPlugin from './websocket';
 import { OpenCodeManager } from './opencode';
 import { db } from './db';
 import { join } from 'path';
+import logger from './logger';
 import { fileURLToPath } from 'url';
 
 const fastify = Fastify({
@@ -56,24 +57,24 @@ async function start() {
         "UPDATE sessions SET status = 'failed', completed_at = ? WHERE status = 'running'"
       ).run(now);
       if (result.changes > 0) {
-        fastify.log.info(`Marked ${result.changes} orphaned running session(s) as failed`);
+        logger.info(`Marked ${result.changes} orphaned running session(s) as failed`, { component: 'server', operation: 'cleanup' });
       }
     } catch (err) {
-      fastify.log.error({ err }, 'Failed to clean up orphaned sessions');
+      logger.error('Failed to clean up orphaned sessions', err, { component: 'server', operation: 'cleanup' });
     }
 
     await fastify.listen({ port, host });
-    fastify.log.info(`Server listening on ${host}:${port}`);
+    logger.info(`Server listening on ${host}:${port}`, { component: 'server' });
 
     const shutdown = async (signal: string) => {
-      fastify.log.info(`Received ${signal}, starting graceful shutdown...`);
+      logger.info(`Received ${signal}, starting graceful shutdown...`, { component: 'server' });
       OpenCodeManager.shutdownAll();
       try {
         await fastify.close();
-        fastify.log.info('Server closed successfully');
+        logger.info('Server closed successfully', { component: 'server' });
         process.exit(0);
       } catch (err) {
-        fastify.log.error({ err }, 'Error during shutdown');
+        logger.error('Error during shutdown', err, { component: 'server' });
         process.exit(1);
       }
     };
@@ -81,7 +82,7 @@ async function start() {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
   } catch (err) {
-    fastify.log.error({ err }, 'Error starting server');
+    logger.error('Error starting server', err, { component: 'server' });
     process.exit(1);
   }
 }

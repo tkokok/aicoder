@@ -2,6 +2,30 @@
  * Validation utilities for session input
  */
 
+import { createComponentLogger } from './logger';
+
+const log = createComponentLogger('validation');
+
+// ============================================================================
+// Validation Constants
+// ============================================================================
+
+const PROJECT_NAME_MIN_LENGTH = 4;
+const PROJECT_NAME_MAX_LENGTH = 100;
+const REQUIREMENTS_MIN_LENGTH = 10;
+const TECH_STACK_MAX_LENGTH = 200;
+const DEV_ENV_MAX_LENGTH = 200;
+const TEST_METHOD_MAX_LENGTH = 200;
+const OPENCODE_HEADER_MAX_LENGTH = 500;
+const OPENCODE_USERNAME_MAX_LENGTH = 200;
+const OPENCODE_PASSWORD_MAX_LENGTH = 500;
+
+const VALID_REASONSING_EFFORTS = ['low', 'medium', 'high'] as const;
+
+// ============================================================================
+// Validators
+// ============================================================================
+
 /**
  * Validates project name
  * @param name - Project name to validate
@@ -9,28 +33,36 @@
  */
 export function validateProjectName(name: unknown): true | string {
   if (name === undefined || name === null) {
+    log.warn('Project name validation failed: required', { field: 'project_name', reason: 'required' });
     return "Project name is required";
   }
   if (typeof name !== "string") {
+    log.warn('Project name validation failed: not a string', { field: 'project_name', reason: 'type' });
     return "Project name must be a string";
   }
   const trimmed = name.trim();
   if (trimmed.length === 0) {
+    log.warn('Project name validation failed: empty', { field: 'project_name', reason: 'empty' });
     return "Project name cannot be empty or whitespace-only";
   }
-  if (trimmed.length <= 4) {
-    return "Project name must be more than 4 characters";
+  if (trimmed.length <= PROJECT_NAME_MIN_LENGTH) {
+    log.warn('Project name validation failed: too short', { field: 'project_name', reason: 'min_length', length: trimmed.length, min: PROJECT_NAME_MIN_LENGTH });
+    return `Project name must be more than ${PROJECT_NAME_MIN_LENGTH} characters`;
   }
-  if (trimmed.length > 100) {
-    return "Project name must be at most 100 characters";
+  if (trimmed.length > PROJECT_NAME_MAX_LENGTH) {
+    log.warn('Project name validation failed: too long', { field: 'project_name', reason: 'max_length', length: trimmed.length, max: PROJECT_NAME_MAX_LENGTH });
+    return `Project name must be at most ${PROJECT_NAME_MAX_LENGTH} characters`;
   }
   if (!/^[a-z]/.test(trimmed)) {
+    log.warn('Project name validation failed: must start with lowercase letter', { field: 'project_name', reason: 'format', value: trimmed.slice(0, 20) });
     return "Project name must start with a lowercase letter";
   }
   if (!/[a-z0-9]$/.test(trimmed)) {
+    log.warn('Project name validation failed: must end with letter or number', { field: 'project_name', reason: 'format', value: trimmed.slice(0, 20) });
     return "Project name must end with a letter or number";
   }
   if (!/^[a-z0-9_-]+$/.test(trimmed)) {
+    log.warn('Project name validation failed: invalid characters', { field: 'project_name', reason: 'invalid_chars', value: trimmed.slice(0, 20) });
     return "Project name can only contain lowercase a-z, 0-9, underscore, and hyphen";
   }
   return true;
@@ -43,17 +75,21 @@ export function validateProjectName(name: unknown): true | string {
  */
 export function validateRequirements(requirements: unknown): true | string {
   if (requirements === undefined || requirements === null) {
+    log.warn('Requirements validation failed: required', { field: 'requirements', reason: 'required' });
     return "Requirements is required";
   }
   if (typeof requirements !== "string") {
+    log.warn('Requirements validation failed: not a string', { field: 'requirements', reason: 'type' });
     return "Requirements must be a string";
   }
   const trimmed = requirements.trim();
   if (trimmed.length === 0) {
+    log.warn('Requirements validation failed: empty', { field: 'requirements', reason: 'empty' });
     return "Requirements cannot be empty or whitespace-only";
   }
-  if (trimmed.length < 10) {
-    return "Requirements must be at least 10 characters";
+  if (trimmed.length < REQUIREMENTS_MIN_LENGTH) {
+    log.warn('Requirements validation failed: too short', { field: 'requirements', reason: 'min_length', length: trimmed.length, min: REQUIREMENTS_MIN_LENGTH });
+    return `Requirements must be at least ${REQUIREMENTS_MIN_LENGTH} characters`;
   }
   return true;
 }
@@ -74,8 +110,8 @@ export function validateTechStack(techStack: unknown): true | string {
   if (trimmed.length === 0) {
     return "Tech stack cannot be empty or whitespace-only";
   }
-  if (trimmed.length > 200) {
-    return "Tech stack must be at most 200 characters";
+  if (trimmed.length > TECH_STACK_MAX_LENGTH) {
+    return `Tech stack must be at most ${TECH_STACK_MAX_LENGTH} characters`;
   }
   return true;
 }
@@ -93,8 +129,8 @@ export function validateDevEnv(devEnv: unknown): true | string {
     return "Dev environment must be a string";
   }
   const trimmed = devEnv.trim();
-  if (trimmed.length > 200) {
-    return "Dev environment must be at most 200 characters";
+  if (trimmed.length > DEV_ENV_MAX_LENGTH) {
+    return `Dev environment must be at most ${DEV_ENV_MAX_LENGTH} characters`;
   }
   return true;
 }
@@ -112,8 +148,8 @@ export function validateTestMethod(testMethod: unknown): true | string {
     return "Test method must be a string";
   }
   const trimmed = testMethod.trim();
-  if (trimmed.length > 200) {
-    return "Test method must be at most 200 characters";
+  if (trimmed.length > TEST_METHOD_MAX_LENGTH) {
+    return `Test method must be at most ${TEST_METHOD_MAX_LENGTH} characters`;
   }
   return true;
 }
@@ -183,6 +219,7 @@ function validateMode(mode: unknown, existingPath: unknown): true | string {
  * @returns Validation result with valid flag and array of errors
  */
 export function validateSessionInput(input: SessionInput): ValidationResult {
+  log.info('Starting session input validation', { operation: 'validate_start' });
   const errors: string[] = [];
 
   const projectNameResult = validateProjectName(input.projectName);
@@ -204,26 +241,37 @@ export function validateSessionInput(input: SessionInput): ValidationResult {
     try {
       new URL(input.opencodeUrl);
     } catch {
+      log.warn('OpenCode URL validation failed: invalid URL', { field: 'opencode_url', reason: 'invalid_url' });
       errors.push('OpenCode URL must be a valid URL');
     }
   }
 
-  if (input.opencodeHeader !== undefined && input.opencodeHeader !== null && typeof input.opencodeHeader === 'string' && input.opencodeHeader.trim().length > 500) {
-    errors.push('OpenCode header must be at most 500 characters');
+  if (input.opencodeHeader !== undefined && input.opencodeHeader !== null && typeof input.opencodeHeader === 'string' && input.opencodeHeader.trim().length > OPENCODE_HEADER_MAX_LENGTH) {
+    log.warn('OpenCode header validation failed: too long', { field: 'opencode_header', reason: 'max_length', length: input.opencodeHeader.length, max: OPENCODE_HEADER_MAX_LENGTH });
+    errors.push(`OpenCode header must be at most ${OPENCODE_HEADER_MAX_LENGTH} characters`);
   }
 
-  if (input.opencodeUsername !== undefined && input.opencodeUsername !== null && typeof input.opencodeUsername === 'string' && input.opencodeUsername.trim().length > 200) {
-    errors.push('OpenCode username must be at most 200 characters');
+  if (input.opencodeUsername !== undefined && input.opencodeUsername !== null && typeof input.opencodeUsername === 'string' && input.opencodeUsername.trim().length > OPENCODE_USERNAME_MAX_LENGTH) {
+    log.warn('OpenCode username validation failed: too long', { field: 'opencode_username', reason: 'max_length' });
+    errors.push(`OpenCode username must be at most ${OPENCODE_USERNAME_MAX_LENGTH} characters`);
   }
 
   if (input.reasoningEffort !== undefined && input.reasoningEffort !== null) {
-    if (typeof input.reasoningEffort !== 'string' || !['low', 'medium', 'high'].includes(input.reasoningEffort)) {
-      errors.push('Reasoning effort must be one of: low, medium, high');
+    if (typeof input.reasoningEffort !== 'string' || !(VALID_REASONSING_EFFORTS as readonly string[]).includes(input.reasoningEffort)) {
+      log.warn('Reasoning effort validation failed: invalid value', { field: 'reasoning_effort', reason: 'invalid_value', value: input.reasoningEffort });
+      errors.push(`Reasoning effort must be one of: ${VALID_REASONSING_EFFORTS.join(', ')}`);
     }
   }
 
-  if (input.opencodePassword !== undefined && input.opencodePassword !== null && typeof input.opencodePassword === 'string' && input.opencodePassword.length > 500) {
-    errors.push('OpenCode password must be at most 500 characters');
+  if (input.opencodePassword !== undefined && input.opencodePassword !== null && typeof input.opencodePassword === 'string' && input.opencodePassword.length > OPENCODE_PASSWORD_MAX_LENGTH) {
+    log.warn('OpenCode password validation failed: too long', { field: 'opencode_password', reason: 'max_length' });
+    errors.push(`OpenCode password must be at most ${OPENCODE_PASSWORD_MAX_LENGTH} characters`);
+  }
+
+  if (errors.length === 0) {
+    log.info('Session input validation passed', { operation: 'validate_success' });
+  } else {
+    log.warn('Session input validation failed', { operation: 'validate_fail', error_count: errors.length, errors });
   }
 
   return {

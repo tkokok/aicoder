@@ -5,6 +5,8 @@
  * Each project gets its own OpenCode process on a random port (20000-30000).
  */
 
+import { createComponentLogger } from './logger';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -49,24 +51,7 @@ export interface ModelInfo {
 // Logger
 // ============================================================================
 
-const log = {
-  info: (component: string, msg: string, data?: unknown) => {
-    const ts = new Date().toISOString();
-    if (data !== undefined) {
-      console.log(`[${ts}] [opencode:${component}] ${msg}`, typeof data === 'object' ? JSON.stringify(data) : data);
-    } else {
-      console.log(`[${ts}] [opencode:${component}] ${msg}`);
-    }
-  },
-  error: (component: string, msg: string, data?: unknown) => {
-    const ts = new Date().toISOString();
-    if (data !== undefined) {
-      console.error(`[${ts}] [opencode:${component}] ERROR: ${msg}`, typeof data === 'object' ? JSON.stringify(data) : data);
-    } else {
-      console.error(`[${ts}] [opencode:${component}] ERROR: ${msg}`);
-    }
-  },
-};
+const log = createComponentLogger('opencode');
 
 // ============================================================================
 // Port Allocation
@@ -112,7 +97,7 @@ class OpenCodeProcess {
       this.readyResolve = resolve;
       this.readyReject = reject;
     });
-    log.info('process', `Allocated port ${this.port} for project: ${projectDir}`);
+    log.info(`Allocated port ${this.port} for project`, { operation: 'allocate_port', port: this.port, project_dir: projectDir });
     this.spawn();
   }
 
@@ -121,8 +106,7 @@ class OpenCodeProcess {
     const command = `${binaryPath} serve --port ${this.port} --hostname ${this.hostname}`;
     // Use bash -lc to load shell environment variables (e.g. from .bashrc / .bash_profile)
     const args = ['bash', '-lc', command];
-    log.info('process', `Spawning: ${args.join(' ')}`);
-    log.info('process', `Working directory: ${this.projectDir}`);
+    log.info(`Spawning OpenCode process`, { operation: 'spawn', command: args.join(' '), cwd: this.projectDir });
 
     this.process = Bun.spawn(args, {
       cwd: this.projectDir,
@@ -131,7 +115,7 @@ class OpenCodeProcess {
       env: process.env,
     });
 
-    log.info('process', `Subprocess PID: ${this.process.pid}`);
+    log.info(`Subprocess started`, { operation: 'spawn', pid: this.process.pid });
 
     const stdout = this.process.stdout;
     if (!stdout || typeof stdout === 'number') {
@@ -151,7 +135,7 @@ class OpenCodeProcess {
           const { done, value } = await stderrReader.read();
           if (done) break;
           const text = decoder.decode(value);
-          log.error('process:stderr', text.trim());
+          log.error(`Process stderr`, undefined, { operation: 'stderr', output: text.trim() });
         }
       };
       readStderr().catch(() => {});
@@ -162,16 +146,16 @@ class OpenCodeProcess {
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
-          log.error('process', `stdout stream ended (process may have exited)`);
+          log.error(`stdout stream ended (process may have exited)`, undefined, { operation: 'stdout' });
           break;
         }
 
         const text = decoder.decode(value);
-        log.info('process:stdout', text.trim());
+        log.debug(`Process stdout: ${text.trim()}`, { operation: 'stdout' });
 
         const match = text.match(/opencode server listening on http:\/\/([^:]+):(\d+)/);
         if (match) {
-          log.info('process', `✓ OpenCode server ready at http://${match[1]}:${match[2]}`);
+          log.info(`OpenCode server ready`, { operation: 'ready', url: `http://${match[1]}:${match[2]}` });
           this.readyResolve();
           return;
         }
@@ -179,12 +163,12 @@ class OpenCodeProcess {
     };
 
     readOutput().catch((error) => {
-      log.error('process', `Failed to read stdout: ${error}`);
+      log.error(`Failed to read stdout`, error, { operation: 'stdout_read' });
       this.readyReject(new Error(`Failed to read stdout: ${error}`));
     });
 
     const timeout = setTimeout(() => {
-      log.error('process', `Timeout (5s) waiting for server on port ${this.port}`);
+      log.error(`Timeout waiting for server`, undefined, { operation: 'timeout', port: this.port });
       this.close();
       this.readyReject(new Error(`Timeout waiting for OpenCode server to start on port ${this.port}`));
     }, 5000);
@@ -211,7 +195,7 @@ class OpenCodeProcess {
   close(): void {
     releasePort(this.port);
     if (this.process) {
-      log.info('process', `Killing OpenCode process (PID: ${this.process.pid}, port: ${this.port})`);
+      log.info(`Killing OpenCode process`, { operation: 'kill', pid: this.process.pid, port: this.port });
       this.process.kill();
       this.process = null;
     }
@@ -238,7 +222,7 @@ export class OpenCodeClient {
     this.directory = opts.directory;
     this.extraHeaders = opts.extraHeaders || {};
     this.auth = opts.auth || null;
-    log.info('client', `Created client → ${this.baseUrl}, dir=${this.directory}, hasAuth=${!!this.auth}, hasExtraHeaders=${Object.keys(this.extraHeaders).length > 0}`);
+    log.info(`Created OpenCode client`, { operation: 'create_client', base_url: this.baseUrl, directory: this.directory, has_auth: !!this.auth, has_extra_headers: Object.keys(this.extraHeaders).length > 0 });
   }
 
   private buildHeaders(): Record<string, string> {
@@ -262,9 +246,9 @@ export class OpenCodeClient {
     const url = `${this.baseUrl}${path}`;
     const headers = this.buildHeaders();
 
-    log.info('client', `→ ${method} ${url}`);
+    log.debug(`→ ${method} ${url}`, { operation: 'http_request', method, path });
     if (body) {
-      log.info('client', `  body: ${JSON.stringify(body).slice(0, 500)}`);
+      log.debug(`  body: ${JSON.stringify(body).slice(0, 500)}`, { operation: 'http_request_body' });
     }
 
     const response = await fetch(url, {
@@ -273,37 +257,37 @@ export class OpenCodeClient {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    log.info('client', `← ${response.status} ${response.statusText} ${method} ${path}`);
+    log.debug(`← ${response.status} ${response.statusText}`, { operation: 'http_response', method, path, status: response.status });
 
     if (!response.ok) {
       const errorText = await response.text();
-      log.error('client', `  response body: ${errorText.slice(0, 500)}`);
+      log.error(`API error response`, undefined, { operation: 'http_error', method, path, status: response.status, body: errorText.slice(0, 500) });
       throw new Error(`OpenCode API error: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
     // Handle 204 No Content
     if (response.status === 204) {
-      log.info('client', `  (204 No Content)`);
+      log.debug(`  (204 No Content)`, { operation: 'http_response_empty' });
       return undefined as T;
     }
 
     const json = await response.json();
-    log.info('client', `  response: ${JSON.stringify(json).slice(0, 500)}`);
+    log.debug(`  response received`, { operation: 'http_response_json' });
     return json;
   }
 
   async isAvailable(): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/global/health`;
-      log.info('client', `Health check → GET ${url}`);
+      log.debug(`Health check → GET ${url}`, { operation: 'health_check' });
       const response = await fetch(url, {
         headers: this.buildHeaders(),
       });
       const ok = response.status === 200;
-      log.info('client', `Health check result: ${ok} (${response.status})`);
+      log.info(`Health check result: ${ok}`, { operation: 'health_check', status: response.status });
       return ok;
     } catch (error) {
-      log.error('client', `Health check failed: ${error}`);
+      log.error(`Health check failed`, error, { operation: 'health_check' });
       return false;
     }
   }
@@ -312,26 +296,26 @@ export class OpenCodeClient {
     const body: Record<string, unknown> = {};
     if (opts?.title) body.title = opts.title;
     if (opts?.parentID) body.parentID = opts.parentID;
-    log.info('client', `Creating session with title: ${opts?.title || '(default)'} parentID: ${opts?.parentID || '(none)'}`);
+    log.info(`Creating session`, { operation: 'create_session', title: opts?.title || '(default)', parent_id: opts?.parentID || '(none)' });
     const session = await this.request<SessionInfo>('POST', '/session', body);
-    log.info('client', `Session created: id=${session.id}, title=${session.title}`);
+    log.info(`Session created`, { operation: 'create_session', session_id: session.id, title: session.title });
     return session;
   }
 
   async getSession(sessionId: string): Promise<SessionInfo> {
-    log.info('client', `Getting session: ${sessionId}`);
+    log.debug(`Getting session`, { operation: 'get_session', session_id: sessionId });
     return this.request<SessionInfo>('GET', `/session/${sessionId}`);
   }
 
   async archiveSession(sessionId: string): Promise<void> {
-    log.info('client', `Archiving session: ${sessionId}`);
+    log.info(`Archiving session`, { operation: 'archive_session', session_id: sessionId });
     try {
       await this.request<SessionInfo>('PATCH', `/session/${sessionId}`, {
         time: { archived: Date.now() },
       });
-      log.info('client', `Session archived: ${sessionId}`);
+      log.info(`Session archived`, { operation: 'archive_session', session_id: sessionId });
     } catch (error) {
-      log.error('client', `Failed to archive session ${sessionId}: ${error}`);
+      log.error(`Failed to archive session`, error, { operation: 'archive_session', session_id: sessionId });
     }
   }
 
@@ -367,21 +351,15 @@ export class OpenCodeClient {
     if (opts?.reasoningEffort) {
       body.reasoning_effort = opts.reasoningEffort;
     }
-    const textParts = parts.filter(p => p.type === 'text').map(p => (p as { type: 'text'; text: string }).text.slice(0, 100));
-    log.info('client', `Sending message to session ${sessionId}, agent=${opts?.agent || 'default'}, noReply=${opts?.noReply || false}`);
-    log.info('client', `  parts preview: ${JSON.stringify(textParts)}`);
+    log.info(`Sending message to session`, { operation: 'send_message', session_id: sessionId, agent: opts?.agent || 'default', no_reply: opts?.noReply || false });
     await this.request<void>('POST', `/session/${sessionId}/prompt_async`, body);
-    log.info('client', `Message sent (async, fire-and-forget)`);
+    log.debug(`Message sent (async)`, { operation: 'send_message', session_id: sessionId });
   }
 
   async getMessages(sessionId: string): Promise<MessageInfo[]> {
-    log.info('client', `Fetching messages for session ${sessionId}`);
+    log.debug(`Fetching messages for session`, { operation: 'get_messages', session_id: sessionId });
     const raw = await this.request<any[]>('GET', `/session/${sessionId}/message`);
-    log.info('client', `Got ${raw.length} raw messages`);
-    const lastAssistant = raw.filter((m: any) => m.info?.role === 'assistant').slice(-1)[0];
-    if (lastAssistant) {
-      log.info('client', `Last assistant: finish=${lastAssistant.info?.finish}, parts=${lastAssistant.parts?.length}`);
-    }
+    log.debug(`Got ${raw.length} raw messages`, { operation: 'get_messages', session_id: sessionId, count: raw.length });
 
     const mapped: MessageInfo[] = raw.map((m) => ({
       id: m.info?.id ?? m.id ?? '',
@@ -396,7 +374,7 @@ export class OpenCodeClient {
   }
 
   async getModels(): Promise<ModelInfo[]> {
-    log.info('client', `Fetching available models from /provider`);
+    log.info(`Fetching available models from /provider`, { operation: 'get_models' });
     interface ProviderModel {
       id: string;
       name?: string;
@@ -424,7 +402,7 @@ export class OpenCodeClient {
         });
       }
     }
-    log.info('client', `Found ${models.length} models from ${connectedSet.size} connected providers`);
+    log.info(`Found models from connected providers`, { operation: 'get_models', model_count: models.length, provider_count: connectedSet.size });
     return models;
   }
 
@@ -432,7 +410,7 @@ export class OpenCodeClient {
     let aborted = false;
     const url = `${this.baseUrl}/event`;
 
-    log.info('sse', `Connecting to SSE: ${url}`);
+    log.info(`Connecting to SSE`, { operation: 'sse_connect', url });
 
     const connect = async () => {
       try {
@@ -441,11 +419,11 @@ export class OpenCodeClient {
         });
 
         if (!response.ok) {
-          log.error('sse', `Connection failed: ${response.status}`);
+          log.error(`SSE connection failed`, undefined, { operation: 'sse_connect', status: response.status });
           throw new Error(`SSE connection failed: ${response.status}`);
         }
 
-        log.info('sse', `Connected, reading stream...`);
+        log.info(`SSE connected, reading stream...`, { operation: 'sse_connect' });
 
         const reader = response.body?.getReader();
         if (!reader) {
@@ -458,7 +436,7 @@ export class OpenCodeClient {
         while (!aborted) {
           const { done, value } = await reader.read();
           if (done) {
-            log.info('sse', `Stream ended`);
+            log.debug(`SSE stream ended`, { operation: 'sse_stream' });
             break;
           }
 
@@ -479,7 +457,7 @@ export class OpenCodeClient {
               try {
                 const data = JSON.parse(eventData);
                 if (data.type !== 'heartbeat' && data.type !== 'server.heartbeat') {
-                  log.info('sse', `Event: ${data.type}`);
+                  log.debug(`SSE event received`, { operation: 'sse_event', event_type: data.type });
                   onEvent(data);
                 }
               } catch {
@@ -492,7 +470,7 @@ export class OpenCodeClient {
         }
       } catch (error) {
         if (!aborted) {
-          log.error('sse', `Connection error: ${error}`);
+          log.error(`SSE connection error`, error, { operation: 'sse_connect' });
         }
       }
     };
@@ -500,7 +478,7 @@ export class OpenCodeClient {
     connect();
 
     return () => {
-      log.info('sse', `Unsubscribing`);
+      log.info(`Unsubscribing from SSE`, { operation: 'sse_unsubscribe' });
       aborted = true;
     };
   }
@@ -524,18 +502,17 @@ class OpenCodeManagerImpl {
     if (existingProcess) {
       const existingClient = this.clients.get(projectDir);
       if (existingClient) {
-        log.info('manager', `Reusing existing process for: ${projectDir} (url=${existingProcess.url})`);
+        log.info(`Reusing existing process`, { operation: 'manager_reuse', project_dir: projectDir, url: existingProcess.url });
         return { process: existingProcess, client: existingClient };
       }
     }
 
-    log.info('manager', `No existing process for: ${projectDir}`);
-    log.info('manager', `Active processes: ${this.processes.size}`);
+    log.info(`Creating new process`, { operation: 'manager_create', project_dir: projectDir, active_processes: this.processes.size });
 
     const newProcess = new OpenCodeProcess(projectDir);
-    log.info('manager', `Waiting for process to be ready...`);
+    log.debug(`Waiting for process to be ready...`, { operation: 'manager_wait' });
     await newProcess.waitForReady();
-    log.info('manager', `Process ready at ${newProcess.url}`);
+    log.info(`Process ready`, { operation: 'manager_ready', url: newProcess.url });
 
     const client = new OpenCodeClient({
       baseUrl: newProcess.url,
@@ -546,7 +523,7 @@ class OpenCodeManagerImpl {
     this.clients.set(projectDir, client);
     this.externalDirs.delete(projectDir);
 
-    log.info('manager', `Process registered. Total active: ${this.processes.size}`);
+    log.info(`Process registered`, { operation: 'manager_register', total_active: this.processes.size });
     return { process: newProcess, client };
   }
 
@@ -557,11 +534,11 @@ class OpenCodeManagerImpl {
   ): { client: OpenCodeClient } {
     const existingClient = this.clients.get(projectDir);
     if (existingClient && this.externalDirs.has(projectDir)) {
-      log.info('manager', `Reusing existing external client for: ${projectDir} (url=${baseUrl})`);
+      log.info(`Reusing existing external client`, { operation: 'manager_external_reuse', project_dir: projectDir, url: baseUrl });
       return { client: existingClient };
     }
 
-    log.info('manager', `Creating external client for: ${projectDir} (url=${baseUrl})`);
+    log.info(`Creating external client`, { operation: 'manager_external_create', project_dir: projectDir, url: baseUrl });
     const client = new OpenCodeClient({
       baseUrl,
       directory: projectDir,
@@ -584,7 +561,7 @@ class OpenCodeManagerImpl {
   shutdown(projectDir: string): void {
     const process = this.processes.get(projectDir);
     if (process) {
-      log.info('manager', `Shutting down process for: ${projectDir}`);
+      log.info(`Shutting down process`, { operation: 'manager_shutdown', project_dir: projectDir });
       process.close();
       this.processes.delete(projectDir);
     }
@@ -597,15 +574,15 @@ class OpenCodeManagerImpl {
   }
 
   shutdownAll(): void {
-    log.info('manager', `Shutting down all ${this.processes.size} processes`);
+    log.info(`Shutting down all processes`, { operation: 'manager_shutdown_all', process_count: this.processes.size });
     for (const [dir, process] of this.processes.entries()) {
-      log.info('manager', `  Stopping: ${dir}`);
+      log.debug(`Stopping process`, { operation: 'manager_shutdown', project_dir: dir });
       process.close();
     }
     this.processes.clear();
     this.clients.clear();
     this.externalDirs.clear();
-    log.info('manager', `All processes stopped`);
+    log.info(`All processes stopped`, { operation: 'manager_shutdown_all' });
   }
 }
 

@@ -1,11 +1,15 @@
 import { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
+import { createComponentLogger } from './logger';
+
+const log = createComponentLogger('db');
 
 const DB_PATH = './aicoder.db';
 
 export const db = new Database(DB_PATH);
 
 db.exec('PRAGMA foreign_keys = ON');
+log.info('Database initialized', { db_path: DB_PATH });
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (
@@ -36,6 +40,7 @@ db.exec(`
 `);
 
 function runMigrations() {
+  log.info('Running database migrations...', { operation: 'migrate_start' });
   const migrations: Array<[string, string, string]> = [
     ['sessions', 'project_path', 'TEXT'],
     ['sessions', 'opencode_session_id', 'TEXT'],
@@ -53,21 +58,34 @@ function runMigrations() {
     ['session_inputs', 'subagent_model', 'TEXT'],
   ];
 
-  for (const [table, column, type] of migrations) {
-    const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-    const existing = rows.map(r => r.name);
-    if (!existing.includes(column)) {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  // Run migrations within a transaction for atomicity
+  db.transaction(() => {
+    for (const [table, column, type] of migrations) {
+      const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      const existing = rows.map(r => r.name);
+      if (!existing.includes(column)) {
+        log.info(`Running migration: ALTER TABLE ${table} ADD COLUMN ${column} ${type}`, { operation: 'migrate', table, column });
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+      }
     }
-  }
+  })();
 }
 
 runMigrations();
+log.info('Database migrations completed', { operation: 'migrate_complete' });
 
 export function transaction<T>(fn: () => T): T {
-  return db.transaction(fn)();
+  try {
+    const result = db.transaction(fn)();
+    return result;
+  } catch (error) {
+    log.error('Database transaction failed', error, { operation: 'transaction' });
+    throw error;
+  }
 }
 
 export function generateId(): string {
-  return randomUUID();
+  const id = randomUUID();
+  log.debug(`Generated new ID: ${id.slice(0, 8)}...`, { operation: 'generate_id' });
+  return id;
 }

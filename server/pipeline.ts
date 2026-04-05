@@ -9,10 +9,12 @@
 
 import { writeFile, readFile, mkdir } from 'fs/promises';
 import { join } from 'path';
+import * as yaml from 'js-yaml';
 import { OpenCodeClient } from './opencode';
 import { db, transaction } from './db';
 import type { PromptPart } from './opencode';
 import { buildPipelinePlaybook } from './prompts/pipeline-dispatch';
+import { createSessionLogger, logger } from './logger';
 
 // ============================================================================
 // Types
@@ -127,6 +129,10 @@ const DEFAULT_CONFIG: PipelineConfig = {
 };
 
 const RETRY_DELAYS = [2000, 5000, 10000];
+
+// Pipeline configuration constants
+const PIPELINE_MAX_IDLE_MS = 10 * 60 * 1000; // 10 minutes
+const PIPELINE_POLL_INTERVAL_MS = 3000;
 
 // ============================================================================
 // Checkpoint I/O
@@ -305,127 +311,51 @@ export function addError(
 }
 
 function statusToYaml(status: PipelineStatus): string {
-  const lines: string[] = [
-    `session_id: ${status.session_id}`,
-    `pipeline:\n  current_stage: ${status.pipeline.current_stage}`,
-    `  started_at: ${status.pipeline.started_at}`,
-    `  updated_at: ${status.pipeline.updated_at}`,
-    `stage_order: [${status.stage_order.join(', ')}]`,
-    `stages:`,
-  ];
-  for (const stage of ALL_STAGES) {
-    const stageResult = status.stages[stage];
-    lines.push(`  ${stage}:`);
-    lines.push(`    status: ${stageResult.status}`);
-    lines.push(`    attempts: ${stageResult.attempts}`);
-    if (stageResult.output) {
-      lines.push(`    output: ${stageResult.output}`);
-    }
-    if (stageResult.error) {
-      lines.push(`    error: ${stageResult.error}`);
-    }
-  }
-  lines.push(`stage_timings:`);
-  for (const stage of ALL_STAGES) {
-    const t = status.stage_timings[stage];
-    lines.push(`  ${stage}:`);
-    if (t) {
-      lines.push(`    stage_start_ms: ${t.stage_start_ms ?? ''}`);
-      lines.push(`    stage_end_ms: ${t.stage_end_ms ?? ''}`);
-      lines.push(`    total_ms: ${t.total_ms ?? ''}`);
-    }
-  }
-  if (status.errors.length > 0) {
-    lines.push(`errors:`);
-    for (const error of status.errors) {
-      lines.push(`  - stage: ${error.stage}`);
-      lines.push(`    message: ${error.message}`);
-      lines.push(`    timestamp: ${error.timestamp}`);
-      lines.push(`    recoverable: ${error.recoverable}`);
-    }
-  }
-  return lines.join('\n');
+  return yaml.dump(status, {
+    indent: 2,
+    lineWidth: -1,
+    noRefs: true,
+    sortKeys: false,
+  });
 }
 
-function yamlToStatus(yaml: string): PipelineStatus {
-  const lines = yaml.split('\n');
-  const result: Partial<PipelineStatus> = {
-    stages: {} as Record<PipelineStage, StageResult>,
-    errors: [],
-  };
-  let currentSection = '';
-  let currentStage: PipelineStage | null = null;
-  let currentError: Partial<PipelineStatus['errors'][0]> | null = null;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('session_id:')) {
-      result.session_id = trimmed.split(':')[1].trim();
-    } else if (trimmed === 'pipeline:') {
-      currentSection = 'pipeline';
-    } else if (trimmed.startsWith('stage_order:')) {
-      const arrText = trimmed.slice('stage_order:'.length).trim();
-      result.stage_order = (arrText.match(/[a-z]+/g) || []).filter((s) => ALL_STAGES.includes(s as PipelineStage)) as PipelineStage[];
-    } else if (trimmed === 'stages:') {
-      currentSection = 'stages';
-    } else if (trimmed === 'errors:') {
-      currentSection = 'errors';
-    } else if (currentSection === 'pipeline') {
-      if (trimmed.startsWith('current_stage:')) {
-        result.pipeline = result.pipeline || {
-          current_stage: 'clarify',
-          started_at: '',
-          updated_at: '',
-        };
-        result.pipeline.current_stage = trimmed.split(':')[1].trim() as PipelineStage;
-      } else if (trimmed.startsWith('started_at:')) {
-        result.pipeline = result.pipeline || {
-          current_stage: 'clarify',
-          started_at: '',
-          updated_at: '',
-        };
-        result.pipeline.started_at = trimmed.split(':')[1].trim();
-      } else if (trimmed.startsWith('updated_at:')) {
-        result.pipeline = result.pipeline || {
-          current_stage: 'clarify',
-          started_at: '',
-          updated_at: '',
-        };
-        result.pipeline.updated_at = trimmed.split(':')[1].trim();
-      }
-    } else if (currentSection === 'stages') {
-      if (trimmed.endsWith(':') && ALL_STAGES.includes(trimmed.slice(0, -1) as PipelineStage)) {
-        currentStage = trimmed.slice(0, -1) as PipelineStage;
-        result.stages![currentStage] = { status: 'pending', attempts: 0 };
-      } else if (currentStage) {
-        if (trimmed.startsWith('status:')) {
-          result.stages![currentStage].status = trimmed.split(':')[1].trim() as StageStatus;
-        } else if (trimmed.startsWith('attempts:')) {
-          result.stages![currentStage].attempts = parseInt(trimmed.split(':')[1].trim());
-        } else if (trimmed.startsWith('output:')) {
-          result.stages![currentStage].output = trimmed.split(':')[1].trim();
-        } else if (trimmed.startsWith('error:')) {
-          result.stages![currentStage].error = trimmed.split(':')[1].trim();
-        }
-      }
-    } else if (currentSection === 'errors') {
-      if (trimmed.startsWith('- stage:')) {
-        currentError = { stage: trimmed.split(':')[1].trim() as PipelineStage };
-      } else if (currentError) {
-        if (trimmed.startsWith('message:')) {
-          currentError.message = trimmed.split(':')[1].trim();
-        } else if (trimmed.startsWith('timestamp:')) {
-          currentError.timestamp = trimmed.split(':')[1].trim();
-        } else if (trimmed.startsWith('recoverable:')) {
-          currentError.recoverable = trimmed.split(':')[1].trim() === 'true';
-          result.errors!.push(currentError as PipelineStatus['errors'][0]);
-          currentError = null;
+function yamlToStatus(yamlContent: string): PipelineStatus {
+  try {
+    const parsed = yaml.load(yamlContent) as Partial<PipelineStatus>;
+    // Provide defaults for missing fields
+    const stages: Record<PipelineStage, StageResult> = {
+      clarify: { status: 'pending', attempts: 0 },
+      design: { status: 'pending', attempts: 0 },
+      task: { status: 'pending', attempts: 0 },
+      dev: { status: 'pending', attempts: 0 },
+      test: { status: 'pending', attempts: 0 },
+      review: { status: 'pending', attempts: 0 },
+      validate: { status: 'pending', attempts: 0 },
+    };
+    if (parsed.stages) {
+      for (const stage of ALL_STAGES) {
+        if (parsed.stages[stage]) {
+          stages[stage] = parsed.stages[stage];
         }
       }
     }
+    return {
+      session_id: parsed.session_id || '',
+      pipeline: parsed.pipeline || {
+        current_stage: 'clarify',
+        started_at: '',
+        updated_at: '',
+      },
+      stage_order: parsed.stage_order || ALL_STAGES,
+      stages,
+      stage_timings: parsed.stage_timings || {},
+      errors: parsed.errors || [],
+    };
+  } catch (error) {
+    logger.error('Failed to parse YAML status', error, { component: 'pipeline' });
+    // Return a default status on parse failure
+    return createInitialStatus('unknown', ALL_STAGES);
   }
-
-  return result as PipelineStatus;
 }
 
 function checkpointToPipelineStatus(checkpoint: PipelineCheckpoint): PipelineStatus {
@@ -550,7 +480,8 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
 
   const stageStartTime = Date.now();
   const timing: StageTiming = { stage_start_ms: stageStartTime };
-  console.log(`[PIPELINE][${sessionId}] START mode=${pipelineMode} stages=[${stageOrder.join(',')}] at ${new Date(stageStartTime).toISOString()}`);
+  const sessionLogger = createSessionLogger(sessionId);
+  sessionLogger.info(`Pipeline START mode=${pipelineMode} stages=[${stageOrder.join(',')}]`, { operation: 'start' });
 
   try {
     const tSendStart = Date.now();
@@ -560,15 +491,13 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
       [{ type: 'text', text: playbook }],
       finalConfig
     );
-    console.log(`[PIPELINE][${sessionId}] Playbook dispatched in ${Date.now() - tSendStart}ms`);
+    sessionLogger.info(`Playbook dispatched in ${Date.now() - tSendStart}ms`, { operation: 'dispatch' });
 
-    const maxIdleMs = 10 * 60 * 1000;
-    const pollIntervalMs = 3000;
     let lastProgressMs = Date.now();
     let lastCompletedCount = 0;
 
     while (true) {
-      await delay(pollIntervalMs);
+      await delay(PIPELINE_POLL_INTERVAL_MS);
 
       const stageStatuses = await readStageStatuses(sessionId, finalConfig.projectDir, stageOrder);
       const overall = inferPipelineStatus(stageOrder, stageStatuses);
@@ -609,7 +538,7 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
         const stageEndTime = Date.now();
         timing.stage_end_ms = stageEndTime;
         timing.total_ms = stageEndTime - stageStartTime;
-        console.log(`[PIPELINE][${sessionId}] COMPLETED total=${timing.total_ms}ms`);
+        sessionLogger.info(`Pipeline COMPLETED total=${timing.total_ms}ms`, { operation: 'complete' });
         updatePipelineStatus(sessionId, 'completed');
         return status;
       }
@@ -620,15 +549,18 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
         status = addError(status, failedStage, errorMsg, false);
         await writeStatusFile(sessionId, status, finalConfig.projectDir);
         updatePipelineStatus(sessionId, 'failed');
+        sessionLogger.error(`Pipeline stopped at stage ${failedStage}`, new Error(errorMsg), { stage: failedStage, operation: 'fail' });
         throw new Error(`Pipeline stopped at stage ${failedStage}: ${errorMsg}`);
       }
 
       if (completedCount > lastCompletedCount) {
         lastProgressMs = Date.now();
         lastCompletedCount = completedCount;
-        console.log(`[PIPELINE][${sessionId}] Progress: ${completedCount}/${stageOrder.length} stages completed`);
-      } else if (Date.now() - lastProgressMs > maxIdleMs) {
-        throw new Error('Pipeline timed out: no stage progress for 10 minutes');
+        sessionLogger.info(`Progress: ${completedCount}/${stageOrder.length} stages completed`, { operation: 'progress' });
+      } else if (Date.now() - lastProgressMs > PIPELINE_MAX_IDLE_MS) {
+        const timeoutError = new Error(`Pipeline timed out: no stage progress for ${PIPELINE_MAX_IDLE_MS / 60000} minutes`);
+        sessionLogger.error('Pipeline timeout', timeoutError, { operation: 'timeout' });
+        throw timeoutError;
       }
     }
   } catch (error) {
@@ -636,8 +568,13 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
     await saveCheckpoint(checkpoint, finalConfig.projectDir);
     updatePipelineStatus(sessionId, 'failed');
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    status = addError(status, 'validate', errorMessage, false);
+    // Record error to the actual current stage instead of always 'validate'
+    const currentStage = checkpoint.current_stage_index < stageOrder.length
+      ? stageOrder[checkpoint.current_stage_index]
+      : stageOrder[stageOrder.length - 1];
+    status = addError(status, currentStage, errorMessage, false);
     await writeStatusFile(sessionId, status, finalConfig.projectDir);
+    sessionLogger.error('Pipeline failed', error, { stage: currentStage, operation: 'error' });
     throw error;
   }
 }

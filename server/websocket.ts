@@ -2,6 +2,9 @@ import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import fp from 'fastify-plugin';
 import websocket, { WebSocket } from '@fastify/websocket';
 import type { SSEEvent } from './opencode.js';
+import { createComponentLogger } from './logger';
+
+const log = createComponentLogger('websocket');
 
 export interface WebSocketMessage {
   event: string;
@@ -20,7 +23,7 @@ async function websocketPlugin(
 
   fastify.get('/ws', { websocket: true }, (socket) => {
     clients.add(socket);
-    fastify.log.info(`WebSocket client connected. Total clients: ${clients.size}`);
+    log.info(`WebSocket client connected`, { operation: 'client_connect', total_clients: clients.size });
 
     socket.send(JSON.stringify({
       event: 'connected',
@@ -29,11 +32,11 @@ async function websocketPlugin(
 
     socket.on('close', () => {
       clients.delete(socket);
-      fastify.log.info(`WebSocket client disconnected. Total clients: ${clients.size}`);
+      log.info(`WebSocket client disconnected`, { operation: 'client_disconnect', total_clients: clients.size });
     });
 
     socket.on('error', (error: Error) => {
-      fastify.log.error({ err: error }, 'WebSocket client error');
+      log.error('WebSocket client error', error, { operation: 'client_error' });
       clients.delete(socket);
     });
 
@@ -41,10 +44,11 @@ async function websocketPlugin(
       try {
         const message = JSON.parse(data.toString());
         if (message.type === 'ping') {
+          log.debug(`Received ping, sending pong`, { operation: 'ping_pong' });
           socket.send(JSON.stringify({ event: 'pong', data: { timestamp: Date.now() } }));
         }
       } catch {
-        // Ignore malformed messages
+        log.warn('Received malformed WebSocket message', { operation: 'malformed_message', data: data.toString().slice(0, 100) });
       }
     });
   });
@@ -56,15 +60,18 @@ async function websocketPlugin(
       data: event.properties || {},
     });
 
+    let sentCount = 0;
     for (const client of clients) {
       if (client.readyState === 1) {
         client.send(payload);
+        sentCount++;
       }
     }
+    log.debug(`Broadcasted event to clients`, { operation: 'broadcast', event_type: event.type, client_count: sentCount });
   });
 
   fastify.addHook('preClose', async () => {
-    fastify.log.info('Cleaning up WebSocket connections...');
+    log.info('Cleaning up WebSocket connections...', { operation: 'shutdown', client_count: clients.size });
     for (const client of clients) {
       try {
         client.close(1001, 'Server shutting down');
@@ -73,7 +80,7 @@ async function websocketPlugin(
       }
     }
     clients.clear();
-    fastify.log.info('WebSocket cleanup complete');
+    log.info('WebSocket cleanup complete', { operation: 'shutdown_complete' });
   });
 }
 
