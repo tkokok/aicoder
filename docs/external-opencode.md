@@ -1,16 +1,61 @@
 # External OpenCode Server Support
 
-AICoder can connect to either:
-1. A **local temporary** `opencode serve` process (auto-spawned)
-2. An **external** OpenCode server provided by the user (e.g. `http://localhost:4096`)
+AICoder supports connecting to OpenCode in two ways depending on the deployment mode:
 
-## User-Facing Configuration
+1. **Remote mode (default)**: Users manage one or more **Agents** via `agents.html`. Each Agent record stores the OpenCode URLs, and the data plane connects directly to the OpenCode server when running a pipeline.
+2. **Local mode (`USE_DATA_PLANE=false`)**: Users provide the OpenCode endpoint directly in the project creation form (Advanced Options).
 
-In the project creation form (`/create.html`), users can optionally provide:
+Under the hood, both modes ultimately talk to either:
+- A **local temporary** `opencode serve` process (auto-spawned on a random port)
+- An **external** OpenCode server provided by the user (e.g. `http://127.0.0.1:4096`)
+
+---
+
+## Remote Mode (Default)
+
+In Remote mode, the **Control Plane** (`:8080`) does not talk to OpenCode directly. Instead:
+
+1. The user creates an **Agent** in `agents.html` with these fields:
+   - **Name** — human-readable label (e.g. "Local OpenCode")
+   - **Agent URL** — data-plane-to-control callback URL (usually `http://localhost:2080` when using the bundled data plane)
+   - **OpenCode Local URL** — data-plane-to-OpenCode internal URL (e.g. `http://127.0.0.1:4096`)
+   - **OpenCode Public URL** — public-facing OpenCode URL used for frontend links (e.g. `http://127.0.0.1:4096` or a custom domain)
+2. On the project creation form (`/create.html`), the user **selects an Agent** from a dropdown instead of typing URLs.
+3. When a session starts, the control plane passes the selected Agent's `opencode_local_url` to the data plane, which creates the OpenCode session and dispatches the playbook.
+
+### Why two OpenCode URLs?
+
+| Field | Purpose | Example |
+|-------|---------|---------|
+| `opencode_local_url` | Where the **data plane** connects internally. May be a private/container address. | `http://127.0.0.1:4096` |
+| `opencode_public_url` | Where the **frontend** links users to. May be a public domain or reverse proxy. | `http://127.0.0.1:4096` |
+
+This split allows the data plane to run inside a container or VPN while the frontend still generates clickable links that work from the user's browser.
+
+---
+
+## Local Mode (`USE_DATA_PLANE=false`)
+
+In Local mode, the monolithic server handles everything directly. The project creation form exposes **Advanced Options** where the user can provide:
 
 - **OpenCode URL** — external server endpoint
 - **Custom Header** — extra HTTP headers in `Key: Value` format
 - **Username / Password** — Basic Auth credentials
+
+### Example local setup
+
+```bash
+# Terminal 1: start OpenCode
+opencode serve --port 4096 --hostname 127.0.0.1
+
+# Terminal 2: start AICoder in local mode
+USE_DATA_PLANE=false bun dist/server/index.js
+```
+
+Then in AICoder's create form, set:
+- **OpenCode URL**: `http://127.0.0.1:4096`
+
+---
 
 ## Behavior Differences
 
@@ -21,6 +66,8 @@ In the project creation form (`/create.html`), users can optionally provide:
 | Health check | Implicit (wait for stdout ready) | Should be explicit |
 | `x-opencode-directory` header | Sent | Sent |
 | SSE events | Subscribed | Subscribed |
+
+---
 
 ## Critical Bug Fixed
 
@@ -34,27 +81,29 @@ There was a bug where `executePipeline()` internally called `OpenCodeManager.get
 export interface ExecutePipelineOptions {
   sessionId: string;
   opencodeSessionId: string;
-  userInput: string;
+  userInput?: string;
   workspaceDir: string;
   projectDir: string;
-  client: OpenCodeClient;   // <-- injected by routes.ts
+  client: OpenCodeClient;   // <-- injected by caller
   agentsDir?: string;
   model?: string;
 }
 ```
 
-`routes.ts` creates the correct client (external or local) **once** and passes it into the pipeline:
+The caller (data plane in Remote mode, or `server/routes.ts` in Local mode) creates the correct client **once** and passes it into the pipeline:
 
 ```typescript
 // External
 const { client } = OpenCodeManager.getOrCreateExternal(projectDir, opencodeUrl, { extraHeaders, auth });
 
-// Local
+// Local temp process
 const { client } = await OpenCodeManager.getOrCreate(projectDir);
 
 // Pipeline uses the same client
 executePipeline({ ..., client });
 ```
+
+---
 
 ## OpenCodeManager State Tracking
 
@@ -67,18 +116,11 @@ When `shutdown(projectDir)` is called:
 - Local processes are killed and removed
 - External clients are simply removed from the map (the external server stays running)
 
-## Recommended External Server Setup
+---
 
-For development, users can run a standalone OpenCode server:
+## When to use an external server
 
-```bash
-opencode serve --port 4096 --hostname 127.0.0.1
-```
-
-Then in AICoder's create form, set:
-- **OpenCode URL**: `http://127.0.0.1:4096`
-
-This is useful when:
 - You want to reuse an already-warm OpenCode process
 - You want to inspect/debug OpenCode behavior independently
 - You want to avoid the ~2-5s startup time of spawning a new process per project
+- You run OpenCode in a container or on a remote host and want AICoder to connect to it
