@@ -106,6 +106,7 @@ ${stageEntries.join('\n\n')}
    - subagent_type: the exact stage name
    - prompt: the prompt provided for that stage above (forward it verbatim)
    - run_in_background: false (REQUIRED)
+   - load_skills: [] (REQUIRED, pass empty array if no skills needed)
    - task_id: if retrying a failed attempt, reuse the previous task_id
 4. WAIT for the \`task\` tool to return.
 5. Validate the result using the checklist below.
