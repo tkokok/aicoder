@@ -459,6 +459,8 @@ function initForm(): void {
     }
   });
 
+  const demoBtn = document.getElementById('demo-btn') as HTMLButtonElement | null;
+
   const modeRadios = document.querySelectorAll('input[name="mode"]');
   modeRadios.forEach(radio => {
     radio.addEventListener('change', () => {
@@ -470,6 +472,16 @@ function initForm(): void {
         } else {
           existingGroup.classList.add('hidden');
           clearFieldError('existingPath');
+        }
+      }
+      if (demoBtn) {
+        demoBtn.disabled = selected === 'existing';
+        if (selected === 'existing') {
+          demoBtn.style.opacity = '0.5';
+          demoBtn.style.cursor = 'not-allowed';
+        } else {
+          demoBtn.style.opacity = '1';
+          demoBtn.style.cursor = 'pointer';
         }
       }
     });
@@ -490,7 +502,6 @@ function initForm(): void {
     });
   });
 
-  const demoBtn = document.getElementById('demo-btn') as HTMLButtonElement | null;
   if (demoBtn) {
     demoBtn.addEventListener('click', () => {
       const ts = Math.floor(Date.now() / 1000);

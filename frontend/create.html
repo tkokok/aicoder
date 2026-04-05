@@ -242,25 +242,26 @@
               </span>
             </div>
 
-            <div class="form-group full" style="display: flex; gap: 12px; align-items: flex-end;">
-              <div style="flex: 1; display: flex; flex-direction: column;">
-                <label for="projectName" class="form-label form-label-required">Project Name</label>
+            <div class="form-group full">
+              <label for="projectName" class="form-label form-label-required">Project Name</label>
+              <div style="display: flex; gap: 12px; align-items: center;">
                 <input
                   type="text"
                   id="projectName"
                   name="projectName"
                   class="form-input"
+                  style="flex: 1;"
                   placeholder="my-awesome-project"
                   required
                   minlength="5"
                   maxlength="100"
                 >
-                <span id="projectName-hint" class="form-hint">
-                  Lowercase letters, numbers, underscore, hyphen. Must start with a letter and end with a letter or number. Min 5 characters.
-                </span>
-                <span id="projectName-error" class="form-error hidden" role="alert"></span>
+                <button type="button" id="demo-btn" class="btn btn-secondary" style="white-space: nowrap;">Create Todo Demo</button>
               </div>
-              <button type="button" id="demo-btn" class="btn btn-secondary" style="white-space: nowrap;">Create Todo Demo</button>
+              <span id="projectName-hint" class="form-hint">
+                Lowercase letters, numbers, underscore, hyphen. Must start with a letter and end with a letter or number. Min 5 characters.
+              </span>
+              <span id="projectName-error" class="form-error hidden" role="alert"></span>
             </div>
 
             <div class="form-group full hidden" id="existingPath-group">
@@ -328,7 +329,7 @@
                       <div class="form-radio-group">
                         <label class="form-radio">
                           <input type="radio" name="opencodeEnv" value="external" id="opencode-env-external" checked>
-                          <span>External (127.0.0.1:4096)</span>
+                          <span>External</span>
                         </label>
                         <label class="form-radio">
                           <input type="radio" name="opencodeEnv" value="random" id="opencode-env-random">
