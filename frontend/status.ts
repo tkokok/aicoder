@@ -18,11 +18,16 @@ class StatusPage {
   private sessionId: string | null = null;
   private pollTimer: number | null = null;
   private opencodeUrl: string | null = null;
+  private opencodeSessionId: string | null = null;
+  private projectPath: string | null = null;
   private lastError: string | null = null;
 
   constructor() {
     this.init();
   }
+
+  private showFullHistory = false;
+  private currentMessages: string[] = [];
 
   private init(): void {
     this.sessionId = this.getSessionIdFromUrl();
@@ -35,15 +40,9 @@ class StatusPage {
     const toggleBtn = document.getElementById('toggle-history-btn');
     if (toggleBtn) {
       toggleBtn.addEventListener('click', () => {
-        const container = document.getElementById('messages-history');
-        const isExpanded = toggleBtn.getAttribute('aria-expanded') === 'true';
-        const newExpanded = !isExpanded;
-        toggleBtn.setAttribute('aria-expanded', String(newExpanded));
-        if (container) {
-          container.style.display = newExpanded ? 'block' : 'none';
-        }
-        const count = container?.children.length || 0;
-        toggleBtn.textContent = newExpanded ? `Hide History (${count})` : `Show Full History (${count})`;
+        this.showFullHistory = !this.showFullHistory;
+        toggleBtn.setAttribute('aria-expanded', String(this.showFullHistory));
+        this.renderActivity();
       });
     }
   }
@@ -84,9 +83,16 @@ class StatusPage {
         this.updateOpenCodeUrl(data.opencode_url);
       }
 
+      if (typeof data.opencode_session_id === 'string' && data.opencode_session_id) {
+        this.opencodeSessionId = data.opencode_session_id;
+      }
+
       if (typeof data.project_path === 'string' && data.project_path) {
+        this.projectPath = data.project_path;
         this.updateProjectDir(data.project_path);
       }
+
+      this.updateMainAgentUrl();
 
       const workspacePath = typeof data.workspace_path === 'string' && data.workspace_path
         ? data.workspace_path
@@ -111,11 +117,18 @@ class StatusPage {
         } catch {}
       }
 
-      if (latestMessage !== undefined) {
-        this.updateLatestMessage(latestMessage || 'Waiting for updates...');
+      if (messagesList !== undefined && messagesList.length > 0) {
+        this.currentMessages = messagesList;
+      } else if (latestMessage !== undefined) {
+        this.currentMessages = [latestMessage || 'Waiting for updates...'];
       }
-      if (messagesList !== undefined) {
-        this.updateMessagesHistory(messagesList);
+      this.renderActivity();
+
+      let progressPercent: number | undefined;
+      let stages: Record<string, { status?: string }> | undefined;
+      if (data.stages && typeof data.stages === 'object' && data.stages !== null) {
+        stages = data.stages as Record<string, { status?: string }>;
+        progressPercent = this.calculateProgress(stages);
       }
 
       if (status === 'completed') {
@@ -125,15 +138,17 @@ class StatusPage {
         const errorMsg = this.lastError || 'Pipeline failed';
         this.updatePipelineState('Failed', 'failed', errorMsg);
         this.updateProgress(0);
-      } else if (currentStage) {
-        const stepName = currentStage === 'completed'
-          ? 'Completed'
-          : currentStage === 'failed'
-          ? 'Failed'
-          : currentStage.replace(' agent', '');
-        this.updatePipelineState(stepName, 'running');
       } else {
-        this.updatePipelineState('Initializing', 'pending');
+        const rawStep = currentStage || 'Initializing';
+        const stepName = rawStep === 'completed'
+          ? 'Completed'
+          : rawStep === 'failed'
+          ? 'Failed'
+          : rawStep.replace(' agent', '');
+        this.updatePipelineState(stepName, 'running');
+        if (progressPercent !== undefined) {
+          this.updateProgress(progressPercent);
+        }
       }
     } catch (err) {
       // ignore polling errors
@@ -249,14 +264,18 @@ class StatusPage {
         messagesList = JSON.parse(data.messages_json) as string[];
       } catch {}
     }
-    const progressPercent = typeof data.progress_percent === 'number' ? data.progress_percent : undefined;
+    let progressPercent = typeof data.progress_percent === 'number' ? data.progress_percent : undefined;
+    if (progressPercent === undefined && data.stages && typeof data.stages === 'object' && data.stages !== null) {
+      const stages = data.stages as Record<string, { status?: string }>;
+      progressPercent = this.calculateProgress(stages);
+    }
 
-    if (latestMessage !== undefined) {
-      this.updateLatestMessage(latestMessage || 'Waiting for updates...');
+    if (messagesList !== undefined && messagesList.length > 0) {
+      this.currentMessages = messagesList;
+    } else if (latestMessage !== undefined) {
+      this.currentMessages = [latestMessage || 'Waiting for updates...'];
     }
-    if (messagesList !== undefined) {
-      this.updateMessagesHistory(messagesList);
-    }
+    this.renderActivity();
 
     if (progressPercent !== undefined) {
       this.updateProgress(progressPercent);
@@ -348,31 +367,35 @@ class StatusPage {
     }
   }
 
-  private updateLatestMessage(text: string): void {
-    const el = document.getElementById('latest-message');
-    if (el) {
-      el.textContent = text;
+  private renderActivity(): void {
+    const contentEl = document.getElementById('activity-content');
+    const toggleBtn = document.getElementById('toggle-history-btn');
+    const titleEl = document.getElementById('activity-title');
+    if (!contentEl) return;
+
+    if (this.showFullHistory) {
+      contentEl.innerHTML = '';
+      for (const msg of this.currentMessages) {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding: var(--space-3); border-bottom: 1px solid var(--color-neutral-100); white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--font-size-sm); color: var(--color-neutral-700);';
+        item.textContent = msg;
+        contentEl.appendChild(item);
+      }
+      if (toggleBtn) toggleBtn.textContent = 'Show Latest Only';
+      if (titleEl) titleEl.textContent = 'Activity History';
+    } else {
+      const latest = this.currentMessages[this.currentMessages.length - 1] || 'Waiting for updates...';
+      contentEl.textContent = latest;
+      if (toggleBtn) toggleBtn.textContent = 'Show Full History';
+      if (titleEl) titleEl.textContent = 'Latest Activity';
     }
   }
 
-  private updateMessagesHistory(messages: string[]): void {
-    const container = document.getElementById('messages-history');
-    const toggleBtn = document.getElementById('toggle-history-btn');
-    if (!container) return;
-
-    container.innerHTML = '';
-    for (const msg of messages) {
-      const item = document.createElement('div');
-      item.style.cssText = 'padding: var(--space-3); border-bottom: 1px solid var(--color-neutral-100); white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--font-size-sm); color: var(--color-neutral-700);';
-      item.textContent = msg;
-      container.appendChild(item);
-    }
-
-    if (toggleBtn) {
-      const count = messages.length;
-      const isExpanded = toggleBtn.getAttribute('aria-expanded') === 'true';
-      toggleBtn.textContent = isExpanded ? `Hide History (${count})` : `Show Full History (${count})`;
-    }
+  private calculateProgress(stages: Record<string, { status?: string }>): number {
+    const stageNames = Object.keys(stages);
+    if (stageNames.length === 0) return 0;
+    const completed = stageNames.filter((s) => stages[s].status === 'completed').length;
+    return Math.round((completed / stageNames.length) * 100);
   }
 
   private updateOpenCodeUrl(url: string): void {
@@ -414,6 +437,15 @@ class StatusPage {
         });
       };
     }
+  }
+
+  private updateMainAgentUrl(): void {
+    const el = document.getElementById('opencode-session-url') as HTMLAnchorElement | null;
+    if (!el || !this.opencodeUrl || !this.opencodeSessionId || !this.projectPath) return;
+    const base64Path = btoa(this.projectPath);
+    const url = `${this.opencodeUrl.replace(/\/$/, '')}/${base64Path}/session/${this.opencodeSessionId}`;
+    el.href = url;
+    el.textContent = url;
   }
 
   private updateWorkspacePath(path: string): void {

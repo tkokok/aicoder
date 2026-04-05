@@ -584,14 +584,22 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
         }
       }
 
-      const currentStageName = stageOrder.find((s) => !stageStatuses[s].exists) || 'completed';
-      checkpoint.current_stage_index = currentStageName === 'completed'
-        ? stageOrder.length
-        : stageOrder.indexOf(currentStageName as PipelineStage);
+      // Determine current stage index based on checkpoint (never regress)
+      let currentStageIndex = checkpoint.current_stage_index;
+      for (let i = currentStageIndex; i < stageOrder.length; i++) {
+        const stage = stageOrder[i];
+        if (checkpoint.stages[stage].status === 'completed') {
+          currentStageIndex = i + 1;
+        } else {
+          break;
+        }
+      }
+      checkpoint.current_stage_index = Math.min(currentStageIndex, stageOrder.length);
       checkpoint.overall_status = overall;
       await saveCheckpoint(checkpoint, finalConfig.projectDir);
 
-      status.pipeline.current_stage = currentStageName === 'completed' ? 'completed' : currentStageName;
+      const currentStageName = checkpoint.current_stage_index >= stageOrder.length ? 'completed' : stageOrder[checkpoint.current_stage_index];
+      status.pipeline.current_stage = currentStageName;
       await writeStatusFile(sessionId, status, finalConfig.projectDir);
 
       if (overall === 'completed') {

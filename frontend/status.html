@@ -105,6 +105,9 @@
             <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
               OpenCode URL: <a id="opencode-url" href="#" target="_blank" style="color: var(--color-primary-600);">-</a>
             </div>
+            <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500);">
+              Main Agent: <a id="opencode-session-url" href="#" target="_blank" style="color: var(--color-primary-600);">-</a>
+            </div>
             <div class="font-mono mb-2" style="font-size: var(--font-size-sm); color: var(--color-neutral-500); display: flex; align-items: center; gap: var(--space-2);">
               <span>Project Path: <span id="project-path">-</span></span>
               <button type="button" id="copy-project-path-btn" class="btn btn-secondary" style="padding: var(--space-1) var(--space-2); font-size: var(--font-size-xs);">Copy</button>
@@ -150,7 +153,7 @@
 
         <div class="card mb-6">
           <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
-            <h2 class="card-title">Latest Activity</h2>
+            <h2 class="card-title" id="activity-title">Latest Activity</h2>
             <button
               type="button"
               id="toggle-history-btn"
@@ -162,13 +165,12 @@
             </button>
           </div>
           <div class="card-body">
-            <div class="font-mono" style="font-size: var(--font-size-sm); color: var(--color-neutral-600); white-space: pre-wrap;" id="latest-message">
-              Waiting for updates...
-            </div>
             <div
-              id="messages-history"
-              style="display: none; margin-top: var(--space-4); border: 1px solid var(--color-neutral-200); border-radius: var(--radius-md); max-height: 400px; overflow-y: auto;"
+              class="font-mono"
+              style="font-size: var(--font-size-sm); color: var(--color-neutral-600); white-space: pre-wrap;"
+              id="activity-content"
             >
+              Waiting for updates...
             </div>
           </div>
         </div>

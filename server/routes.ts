@@ -522,8 +522,8 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params;
 
       const session = db.prepare(
-        'SELECT id, status, opencode_url, project_path, workspace_path, repo_name, current_agent, latest_message, messages_json, stages_json, created_at, completed_at FROM sessions WHERE id = ?',
-      ).get(id) as { id: string; status: string; opencode_url?: string; project_path?: string; workspace_path?: string; repo_name?: string; current_agent?: string; latest_message?: string; messages_json?: string; stages_json?: string; created_at: number; completed_at?: number } | undefined;
+        'SELECT id, opencode_session_id, status, opencode_url, project_path, workspace_path, repo_name, current_agent, latest_message, messages_json, stages_json, created_at, completed_at FROM sessions WHERE id = ?',
+      ).get(id) as { id: string; opencode_session_id?: string; status: string; opencode_url?: string; project_path?: string; workspace_path?: string; repo_name?: string; current_agent?: string; latest_message?: string; messages_json?: string; stages_json?: string; created_at: number; completed_at?: number } | undefined;
 
       if (!session) {
         return reply.status(404).send({ error: 'Session not found' });
@@ -627,81 +627,131 @@ function startProgressPolling(
   broadcast: (event: SSEEvent) => void
 ): () => void {
   let running = true;
+  let lastStagesSnapshot: Record<string, { status: string }> | null = null;
+  let lastCurrentStage: string | null = null;
+
+  // Server-side accumulated message history
+  const accumulatedMessages: string[] = [];
+  const seenMessageTexts = new Set<string>();
+
+  // Hydrate from DB if server restarted
+  try {
+    const row = db.prepare('SELECT messages_json FROM sessions WHERE id = ?').get(sessionId) as { messages_json?: string } | undefined;
+    if (row?.messages_json) {
+      const parsed = JSON.parse(row.messages_json) as string[];
+      for (const msg of parsed) {
+        if (msg && !seenMessageTexts.has(msg)) {
+          seenMessageTexts.add(msg);
+          accumulatedMessages.push(msg);
+        }
+      }
+    }
+  } catch {
+    // ignore hydration errors
+  }
 
   const poll = async () => {
     if (!running) return;
     try {
-      // Infer current stage from status.yaml (authoritative) or fall back to JSON files
+      // 1) Infer stage from status.yaml, fallback to checkpoint.json, then to last known
       let currentStage: string;
-      const stagesSnapshot: Record<string, { status: string }> = {};
+      let stagesSnapshot: Record<string, { status: string }>;
       const statusFromYaml = await readStatusFile(sessionId, projectDir);
       if (statusFromYaml) {
         currentStage = statusFromYaml.pipeline.current_stage;
         const effectiveOrder = statusFromYaml.stage_order && statusFromYaml.stage_order.length > 0
           ? statusFromYaml.stage_order
           : stageOrder;
+        stagesSnapshot = {};
         for (const stage of effectiveOrder) {
           stagesSnapshot[stage] = { status: statusFromYaml.stages[stage].status };
         }
       } else {
-        let completedStages = 0;
-        for (const stage of stageOrder) {
-          try {
-            await access(join(projectDir, `run-${sessionId}`, `${stage}.json`));
-            completedStages++;
-          } catch {
-            break;
-          }
+        // Fallback: read checkpoint.json directly
+        const checkpointPath = join(projectDir, `run-${sessionId}`, 'checkpoint.json');
+        let checkpointCurrentStageIndex = -1;
+        let checkpointOrder: string[] = [];
+        let checkpointStages: Record<string, { status: string }> = {};
+        try {
+          const cpContent = await readFile(checkpointPath, 'utf-8');
+          const cp = JSON.parse(cpContent) as {
+            current_stage_index?: number;
+            stage_order?: string[];
+            stages?: Record<string, { status: string }>;
+          };
+          if (typeof cp.current_stage_index === 'number') checkpointCurrentStageIndex = cp.current_stage_index;
+          if (Array.isArray(cp.stage_order)) checkpointOrder = cp.stage_order;
+          if (cp.stages && typeof cp.stages === 'object') checkpointStages = cp.stages;
+        } catch {
+          // ignore checkpoint read errors
         }
-        currentStage = completedStages >= stageOrder.length ? 'completed' : stageOrder[completedStages];
-        for (let i = 0; i < stageOrder.length; i++) {
-          const stage = stageOrder[i];
-          if (i < completedStages) {
-            stagesSnapshot[stage] = { status: 'completed' };
-          } else if (i === completedStages && currentStage !== 'completed') {
-            stagesSnapshot[stage] = { status: 'running' };
-          } else {
-            stagesSnapshot[stage] = { status: 'pending' };
+
+        if (checkpointOrder.length > 0) {
+          const idx = checkpointCurrentStageIndex >= 0 ? checkpointCurrentStageIndex : 0;
+          currentStage = idx >= checkpointOrder.length ? 'completed' : checkpointOrder[idx];
+          stagesSnapshot = {};
+          for (let i = 0; i < checkpointOrder.length; i++) {
+            const stage = checkpointOrder[i];
+            const stageStatus = checkpointStages[stage]?.status || 'pending';
+            if (i < idx) {
+              stagesSnapshot[stage] = { status: stageStatus === 'completed' ? 'completed' : stageStatus };
+            } else if (i === idx && currentStage !== 'completed') {
+              stagesSnapshot[stage] = { status: stageStatus === 'pending' ? 'running' : stageStatus };
+            } else {
+              stagesSnapshot[stage] = { status: 'pending' };
+            }
+          }
+        } else if (lastCurrentStage && lastStagesSnapshot) {
+          currentStage = lastCurrentStage;
+          stagesSnapshot = { ...lastStagesSnapshot };
+        } else {
+          currentStage = stageOrder[0] || 'completed';
+          stagesSnapshot = {};
+          for (let i = 0; i < stageOrder.length; i++) {
+            stagesSnapshot[stageOrder[i]] = { status: i === 0 ? 'running' : 'pending' };
           }
         }
       }
-      const completedStages = stageOrder.filter((s) => stagesSnapshot[s].status === 'completed').length;
+
+      lastStagesSnapshot = stagesSnapshot;
+      lastCurrentStage = currentStage;
+
+      const completedStages = stageOrder.filter((s) => stagesSnapshot[s]?.status === 'completed').length;
       const progressPercent = Math.round((completedStages / stageOrder.length) * 100);
       const currentAgent = currentStage === 'completed' ? 'completed' : `${currentStage} agent`;
 
-      // Collect all assistant messages (not just the latest) for full history
+      // 2) Accumulate assistant messages server-side
       let latestMessage = '';
-      const allMessages: string[] = [];
       try {
         const messages = await client.getMessages(opencodeSessionId);
-        const assistantMsgs = messages.filter((m) => m.role === 'assistant');
-        for (const msg of assistantMsgs) {
-          if (msg?.parts) {
+        for (const msg of messages) {
+          if (msg.role === 'assistant' && msg.parts) {
             const textParts = msg.parts
               .filter((p) => (p.type === 'text' || p.type === 'reasoning') && p.text)
               .map((p) => p.text as string);
             const joined = textParts.join('\n').trim();
-            if (joined) {
-              allMessages.push(joined);
+            if (joined && !seenMessageTexts.has(joined)) {
+              seenMessageTexts.add(joined);
+              accumulatedMessages.push(joined);
             }
           }
         }
-        if (allMessages.length > 0) {
-          latestMessage = allMessages[allMessages.length - 1].slice(0, 800);
+        if (accumulatedMessages.length > 0) {
+          latestMessage = accumulatedMessages[accumulatedMessages.length - 1].slice(0, 800);
         }
       } catch {
-        // ignore
+        // ignore message fetch errors
       }
 
       const stagesJson = JSON.stringify(stagesSnapshot);
-      const messagesJson = JSON.stringify(allMessages);
+      const messagesJson = JSON.stringify(accumulatedMessages);
 
-      // Update DB
+      // 3) Update DB
       db.prepare(
         `UPDATE sessions SET current_agent = ?, latest_message = ?, messages_json = ?, stages_json = ? WHERE id = ?`
       ).run(currentAgent, latestMessage, messagesJson, stagesJson, sessionId);
 
-      // Broadcast
+      // 4) Broadcast
       broadcast({
         type: 'progress',
         properties: {
