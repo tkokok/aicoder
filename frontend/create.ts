@@ -493,10 +493,10 @@ function initForm(): void {
       const ts = Math.floor(Date.now() / 1000);
       const projectNameInput = document.getElementById('projectName') as HTMLInputElement;
       const requirementsInput = document.getElementById('requirements') as HTMLTextAreaElement;
-      const pipelineModeFast = document.getElementById('pipeline-mode-fast') as HTMLInputElement;
+      const pipelineModeSimple = document.getElementById('pipeline-mode-simple') as HTMLInputElement;
       if (projectNameInput) projectNameInput.value = `todo-list-demo-${ts}`;
       if (requirementsInput) requirementsInput.value = '写一个todo list demo，用 html 实现，细节你自己定';
-      if (pipelineModeFast) pipelineModeFast.checked = true;
+      if (pipelineModeSimple) pipelineModeSimple.checked = true;
       clearFieldError('projectName');
       clearFieldError('requirements');
     });

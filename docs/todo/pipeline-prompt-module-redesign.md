@@ -7,31 +7,31 @@
 ## 1. Pipeline Module Refactor
 
 ### 1.1 Remove backend-direct subagent creation
-- [ ] Remove `pollSubagentSession()` from `server/pipeline.ts` (no longer needed)
-- [ ] Remove direct `client.createSession()` + `client.sendMessage()` + `client.archiveSession()` calls for subagents
-- [ ] Remove `buildSubagentPrompt()` (this responsibility moves to the prompt generator module)
+- [x] Remove `pollSubagentSession()` from `server/pipeline.ts` (no longer needed)
+- [x] Remove direct `client.createSession()` + `client.sendMessage()` + `client.archiveSession()` calls for subagents
+- [x] Remove `buildSubagentPrompt()` (this responsibility moves to the prompt generator module)
 
 ### 1.2 Introduce Pipeline State Machine
-- [ ] Define `PipelineState` interface:
+- [x] Define `PipelineState` interface:
   - `mode: 'simple' | 'standard' | 'full'`
   - `currentStageIndex: number`
   - `stages: string[]` (computed from `STAGE_ORDERS[mode]`)
   - `results: Record<string, { status: 'pending' | 'running' | 'completed' | 'failed'; attempts: number }>`
   - `checkpointPath: string`
-- [ ] After every stage completion (or failure), serialize state to `checkpoint.json`
-- [ ] On pipeline restart, load `checkpoint.json` and resume from `currentStageIndex`
+- [x] After every stage completion (or failure), serialize state to `checkpoint.json`
+- [x] On pipeline restart, load `checkpoint.json` and resume from `currentStageIndex`
 
 ### 1.3 Rename modes for consistency
-- [ ] Rename `fast` → `simple` across backend, frontend, and DB
-- [ ] Update frontend radio labels and validation schema
+- [x] Rename `fast` → `simple` across backend, frontend, and DB
+- [x] Update frontend radio labels and validation schema
 
 ---
 
 ## 2. Prompt Generator Module (`server/prompts/pipeline-dispatch.ts`)
 
 ### 2.1 Create module
-- [ ] Create `server/prompts/` directory
-- [ ] Create `server/prompts/pipeline-dispatch.ts`
+- [x] Create `server/prompts/` directory
+- [x] Create `server/prompts/pipeline-dispatch.ts`
 
 ### 2.2 Implement `buildDispatchPrompt(state, config)`
 Input:
@@ -56,26 +56,26 @@ Requirements:
   - Return `finish: "stop"`
 
 ### 2.3 Implement per-stage task summaries
-- [ ] `clarify`: summarize user requirements and expected output format
-- [ ] `design`: reference `clarify.json`, ask for tech stack and architecture
-- [ ] `task`: reference `design.json`, ask for concrete implementation tasks
-- [ ] `dev`: reference `task.json`, ask to implement the tasks
-- [ ] `test`: reference `dev.json`, ask to write/run tests
-- [ ] `review`: reference `dev.json` and `test.json`, ask for code review
-- [ ] `validate`: reference all previous outputs, ask for final validation
+- [x] `clarify`: summarize user requirements and expected output format
+- [x] `design`: reference `clarify.json`, ask for tech stack and architecture
+- [x] `task`: reference `design.json`, ask for concrete implementation tasks
+- [x] `dev`: reference `task.json`, ask to implement the tasks
+- [x] `test`: reference `dev.json`, ask to write/run tests
+- [x] `review`: reference `dev.json` and `test.json`, ask for code review
+- [x] `validate`: reference all previous outputs, ask for final validation
 
 ---
 
 ## 3. AICoder Agent Prompt Update (`agents/AICoder.md`)
 
 ### 3.1 Refocus AICoder as a pure dispatcher
-- [ ] Update `agents/AICoder.md` to:
+- [x] Update `agents/AICoder.md` to:
   - Emphasize that AICoder **reads context from disk** when needed instead of receiving it inline
   - Provide examples of `bash` tool usage to read previous JSON outputs
   - Keep the hard constraints (no doing the work itself)
 
 ### 3.2 Fix model selection hint
-- [ ] Remove hardcoded `model: anthropic/claude-sonnet-4-20250514` from frontmatter or make it consistent with server config (`zhipuai-coding-plan/glm-4.7-flashx`)
+- [x] Remove hardcoded `model: anthropic/claude-sonnet-4-20250514` from frontmatter or make it consistent with server config (`zhipuai-coding-plan/glm-4.7-flashx`)
 - [ ] Investigate why external OpenCode sometimes selects `opencode/big-pickle` despite backend specifying a model
 
 ---
@@ -98,9 +98,9 @@ Requirements:
 ## 5. Frontend & API Updates
 
 ### 5.1 Mode rename
-- [ ] `frontend/create.html`: change "Fast" radio to "Simple"
-- [ ] `frontend/create.ts`: update form serialization
-- [ ] `server/routes.ts`: update `CreateSessionBody` validation (`pipelineMode` enum)
+- [x] `frontend/create.html`: change "Fast" radio to "Simple"
+- [x] `frontend/create.ts`: update form serialization
+- [x] `server/routes.ts`: update `CreateSessionBody` validation (`pipelineMode` enum)
 
 ### 5.2 Status page improvements
 - [ ] Display `checkpoint.json` driven progress instead of backend polling a separate DB field
@@ -130,10 +130,10 @@ Requirements:
 
 ## 7. Cleanup
 
-- [ ] Delete dead code paths in `server/pipeline.ts`
-- [ ] Update `docs/agent-orchestration.md` to reflect the new architecture
-- [ ] Update `docs/roadmap.md` Phase 1/2 status
-- [ ] Run `npm run build` (or `bun build`) to verify no TypeScript errors
+- [x] Delete dead code paths in `server/pipeline.ts`
+- [x] Update `docs/agent-orchestration.md` to reflect the new architecture
+- [x] Update `docs/roadmap.md` Phase 1/2 status
+- [x] Run `npm run build` (or `bun build`) to verify no TypeScript errors
 
 ---
 

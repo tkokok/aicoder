@@ -432,7 +432,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       const model = mainModel;
       const userInput = requireString(input.requirements, 'requirements');
       const rawMode = typeof input.pipelineMode === 'string' ? input.pipelineMode.trim() : 'standard';
-      const pipelineMode: PipelineMode = ['full', 'standard', 'fast'].includes(rawMode) ? (rawMode as PipelineMode) : 'standard';
+      const pipelineMode: PipelineMode = ['full', 'standard', 'simple'].includes(rawMode) ? (rawMode as PipelineMode) : 'standard';
       const stageOrder = getStageOrder(pipelineMode);
 
       const unsubscribeSSE = client.subscribeEvents((event) => {

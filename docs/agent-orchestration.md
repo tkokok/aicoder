@@ -2,6 +2,18 @@
 
 > Lessons learned from building AICoder on top of OpenCode.
 
+## Three-Layer Architecture
+
+AICoder uses a **pipeline-as-prompt-module** model with three distinct layers:
+
+1. **Pipeline (Backend)**: A state machine that decides which stage to run next based on the selected mode (`simple`, `standard`, `full`). It generates a compact **dispatch prompt** for the main agent and advances when the main agent reports completion.
+2. **Main Agent (AICoder)**: The strict dispatcher. It receives one stage at a time, calls the `task` tool to spawn the correct sub-agent, validates the result, saves JSON to disk, and returns `finish: "stop"`.
+3. **Sub-Agents (`clarify`, `design`, `task`, `dev`, `test`, `review`, `validate`)**: Specialists that perform the actual work for their stage.
+
+This design restores OpenCode's native nested `task` UI while keeping the parent agent's context small.
+
+---
+
 ## The `@mention` Trap
 
 A common misconception when building on OpenCode is that writing `@clarify` (or any `@agent_name`) in the assistant's text response will trigger that agent. **It does not.**
@@ -44,6 +56,8 @@ Please confirm the exact scope and produce a clarified requirement summary.`,
 4. It runs the sub-agent with the provided `prompt`
 5. The sub-agent's final response is wrapped in a tool result and returned to the primary agent
 
+---
+
 ## Prompt Engineering for the Primary Agent
 
 The primary agent (AICoder) must be instructed **explicitly and repeatedly** to:
@@ -62,6 +76,22 @@ The primary agent (AICoder) must be instructed **explicitly and repeatedly** to:
 | "DO NOT use the `task` tool" | "You MUST use the `task` tool to invoke sub-agents" |
 | "After writing `@agent_name`, wait" | "After the `task` tool returns, validate and proceed" |
 
+---
+
+## Prompt Economy (Critical)
+
+Previously, dispatch latency degraded from ~10s to >200s because the parent agent's prompt grew with every stage's full output.
+
+**Current fix**: The backend keeps the dispatch prompt minimal:
+
+- ❌ **Do NOT** embed full previous stage outputs into the AICoder prompt
+- ✅ **DO** provide file paths (e.g. `run-{sessionId}/clarify.json`) and let the subagent read them if needed
+- ✅ **DO** keep the dispatch prompt under ~500 tokens
+
+This ensures parent-agent context stays roughly constant regardless of how many stages have already run.
+
+---
+
 ## Agent Naming
 
 We renamed the primary orchestrator from `main` to `AICoder` to avoid confusion with OpenCode's internal conventions.
@@ -70,12 +100,25 @@ We renamed the primary orchestrator from `main` to `AICoder` to avoid confusion 
 - **API parameter**: `agent: "AICoder"`
 - **Sub-agents**: `agents/clarify.md`, `agents/design.md`, `agents/task.md`, `agents/dev.md`, `agents/test.md`, `agents/review.md`, `agents/validate.md`
 
+---
+
 ## Retry & Validation Policy
 
 For each stage:
 - Max 3 attempts total (initial + 2 retries)
 - If validation fails, call the **same** `task` tool again with feedback
 - If a stage still fails after 3 attempts, stop the pipeline and mark it `failed`
+
+---
+
+## Checkpointing & Resume
+
+The pipeline saves a `checkpoint.json` after every stage attempt. On restart:
+1. Load `checkpoint.json` from `run-{sessionId}/checkpoint.json`
+2. Resume from `current_stage_index`
+3. Re-send the dispatch prompt for the current stage
+
+---
 
 ## Reference: OpenCode task.txt
 

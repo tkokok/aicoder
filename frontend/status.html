@@ -124,7 +124,7 @@
 
         <div class="card mb-6">
           <div class="card-header">
-            <h2 class="card-title">Overall Progress</h2>
+            <h2 class="card-title">Pipeline Status</h2>
           </div>
           <div class="card-body">
             <div class="progress-container">
@@ -135,36 +135,15 @@
               <div class="progress-bar">
                 <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
               </div>
-              <div class="step-track" id="step-track">
-                <div class="progress-step" data-stage="clarify">
-                  <div class="step-dot pending" data-dot>1</div>
-                  <div class="step-label">Clarify</div>
-                </div>
-                <div class="progress-step" data-stage="design">
-                  <div class="step-dot pending" data-dot>2</div>
-                  <div class="step-label">Design</div>
-                </div>
-                <div class="progress-step" data-stage="task">
-                  <div class="step-dot pending" data-dot>3</div>
-                  <div class="step-label">Task</div>
-                </div>
-                <div class="progress-step" data-stage="dev">
-                  <div class="step-dot pending" data-dot>4</div>
-                  <div class="step-label">Dev</div>
-                </div>
-                <div class="progress-step" data-stage="test">
-                  <div class="step-dot pending" data-dot>5</div>
-                  <div class="step-label">Test</div>
-                </div>
-                <div class="progress-step" data-stage="review">
-                  <div class="step-dot pending" data-dot>6</div>
-                  <div class="step-label">Review</div>
-                </div>
-                <div class="progress-step" data-stage="validate">
-                  <div class="step-dot pending" data-dot>7</div>
-                  <div class="step-label">Validate</div>
-                </div>
-              </div>
+            </div>
+            <div style="margin-top: var(--space-4); display: flex; align-items: center; gap: var(--space-3);">
+              <span style="color: var(--color-neutral-500);">Current Step:</span>
+              <span id="current-step" style="font-weight: var(--font-weight-semibold);">-</span>
+              <span class="badge" id="pipeline-status-badge">Pending</span>
+            </div>
+            <div id="pipeline-error" class="alert alert-error hidden" style="margin-top: var(--space-4);">
+              <h4 class="alert-title">Pipeline Failed</h4>
+              <p id="pipeline-error-text"></p>
             </div>
           </div>
         </div>

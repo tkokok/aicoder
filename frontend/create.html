@@ -55,8 +55,8 @@
                     <span>Standard (clarify → design → dev → review)</span>
                   </label>
                   <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
-                    <input type="radio" name="pipelineMode" value="fast" id="pipeline-mode-fast">
-                    <span>Fast (clarify → dev)</span>
+                    <input type="radio" name="pipelineMode" value="simple" id="pipeline-mode-simple">
+                    <span>Simple (clarify → dev)</span>
                   </label>
                   <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
                     <input type="radio" name="pipelineMode" value="full" id="pipeline-mode-full">
@@ -64,7 +64,7 @@
                   </label>
                 </div>
                 <span id="pipelineMode-hint" class="form-hint">
-                  Choose how many pipeline stages to run. Fast mode is best for quick demos.
+                  Choose how many pipeline stages to run. Simple mode is best for quick demos.
                 </span>
               </div>
 
@@ -136,130 +136,137 @@
                 <span id="requirements-error" class="form-error hidden" role="alert"></span>
               </div>
 
-              <div class="form-group">
-                <label for="model" class="form-label">
-                  Main Agent Model
-                </label>
-                <select
-                  id="model"
-                  name="model"
-                  class="form-input"
-                  aria-describedby="model-hint"
-                >
-                  <option value="">Loading models...</option>
-                </select>
-                <span id="model-hint" class="form-hint">
-                  AI model for the main orchestrator (AICoder)
-                </span>
-              </div>
-
-              <div class="form-group">
-                <label for="subagentModel" class="form-label">
-                  Sub-agent Model
-                </label>
-                <select
-                  id="subagentModel"
-                  name="subagentModel"
-                  class="form-input"
-                  aria-describedby="subagentModel-hint"
-                >
-                  <option value="">Loading models...</option>
-                </select>
-                <span id="subagentModel-hint" class="form-hint">
-                  AI model for pipeline sub-agents (clarify, design, dev, test, etc.)
-                </span>
-              </div>
-
-              <div class="card" style="border: 1px solid var(--color-neutral-200); margin-top: var(--space-6);">
-                <div class="card-header" style="padding: var(--space-4); border-bottom: 1px solid var(--color-neutral-200); background: var(--color-neutral-50);">
-                  <h3 class="card-title" style="font-size: var(--font-size-base); margin: 0;">OpenCode Environment</h3>
-                </div>
-                <div class="card-body" style="padding: var(--space-4);">
+              <details style="margin-top: var(--space-4);">
+                <summary style="cursor: pointer; font-weight: var(--font-weight-semibold); color: var(--color-neutral-600); padding: var(--space-2) 0;">
+                  Advanced Options
+                </summary>
+                <div style="padding-top: var(--space-2);">
                   <div class="form-group">
-                    <label class="form-label">Environment</label>
-                    <div class="form-radio-group" style="display: flex; gap: var(--space-4); margin-top: var(--space-2); flex-wrap: wrap;">
-                      <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
-                        <input type="radio" name="opencodeEnv" value="external" id="opencode-env-external" checked>
-                        <span>External (default: 127.0.0.1:4096)</span>
-                      </label>
-                      <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
-                        <input type="radio" name="opencodeEnv" value="random" id="opencode-env-random">
-                        <span>Random (temporary local server)</span>
-                      </label>
-                    </div>
+                    <label for="model" class="form-label">
+                      Main Agent Model
+                    </label>
+                    <select
+                      id="model"
+                      name="model"
+                      class="form-input"
+                      aria-describedby="model-hint"
+                    >
+                      <option value="">Loading models...</option>
+                    </select>
+                    <span id="model-hint" class="form-hint">
+                      AI model for the main orchestrator (AICoder)
+                    </span>
                   </div>
 
-                  <div id="external-config">
-                    <div class="form-group">
-                      <label for="opencodeUrl" class="form-label">
-                        OpenCode URL
-                      </label>
-                      <input
-                        type="url"
-                        id="opencodeUrl"
-                        name="opencodeUrl"
-                        class="form-input"
-                        value="http://127.0.0.1:4096"
-                        aria-describedby="opencodeUrl-hint opencodeUrl-error"
-                      >
-                      <span id="opencodeUrl-hint" class="form-hint">
-                        URL of the OpenCode server.
-                      </span>
-                      <span id="opencodeUrl-error" class="form-error hidden" role="alert"></span>
-                    </div>
+                  <div class="form-group">
+                    <label for="subagentModel" class="form-label">
+                      Sub-agent Model
+                    </label>
+                    <select
+                      id="subagentModel"
+                      name="subagentModel"
+                      class="form-input"
+                      aria-describedby="subagentModel-hint"
+                    >
+                      <option value="">Loading models...</option>
+                    </select>
+                    <span id="subagentModel-hint" class="form-hint">
+                      AI model for pipeline sub-agents (clarify, design, dev, test, etc.)
+                    </span>
+                  </div>
 
-                    <div class="form-group">
-                      <label for="opencodeHeader" class="form-label">
-                        Custom Header
-                      </label>
-                      <input
-                        type="text"
-                        id="opencodeHeader"
-                        name="opencodeHeader"
-                        class="form-input"
-                        placeholder="X-Auth-Token: mytoken"
-                        aria-describedby="opencodeHeader-hint opencodeHeader-error"
-                      >
-                      <span id="opencodeHeader-hint" class="form-hint">
-                        Optional: Custom HTTP header in "Key: Value" format
-                      </span>
-                      <span id="opencodeHeader-error" class="form-error hidden" role="alert"></span>
+                  <div class="card" style="border: 1px solid var(--color-neutral-200); margin-top: var(--space-4);">
+                    <div class="card-header" style="padding: var(--space-4); border-bottom: 1px solid var(--color-neutral-200); background: var(--color-neutral-50);">
+                      <h3 class="card-title" style="font-size: var(--font-size-base); margin: 0;">OpenCode Environment</h3>
                     </div>
-
-                    <div class="form-row">
+                    <div class="card-body" style="padding: var(--space-4);">
                       <div class="form-group">
-                        <label for="opencodeUsername" class="form-label">
-                          Username
-                        </label>
-                        <input
-                          type="text"
-                          id="opencodeUsername"
-                          name="opencodeUsername"
-                          class="form-input"
-                          placeholder="user"
-                          aria-describedby="opencodeUsername-error"
-                        >
-                        <span id="opencodeUsername-error" class="form-error hidden" role="alert"></span>
+                        <label class="form-label">Environment</label>
+                        <div class="form-radio-group" style="display: flex; gap: var(--space-4); margin-top: var(--space-2); flex-wrap: wrap;">
+                          <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                            <input type="radio" name="opencodeEnv" value="external" id="opencode-env-external" checked>
+                            <span>External (default: 127.0.0.1:4096)</span>
+                          </label>
+                          <label class="form-radio" style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                            <input type="radio" name="opencodeEnv" value="random" id="opencode-env-random">
+                            <span>Random (temporary local server)</span>
+                          </label>
+                        </div>
                       </div>
 
-                      <div class="form-group">
-                        <label for="opencodePassword" class="form-label">
-                          Password
-                        </label>
-                        <input
-                          type="password"
-                          id="opencodePassword"
-                          name="opencodePassword"
-                          class="form-input"
-                          placeholder="password"
-                          aria-describedby="opencodePassword-error"
-                        >
-                        <span id="opencodePassword-error" class="form-error hidden" role="alert"></span>
+                      <div id="external-config">
+                        <div class="form-group">
+                          <label for="opencodeUrl" class="form-label">
+                            OpenCode URL
+                          </label>
+                          <input
+                            type="url"
+                            id="opencodeUrl"
+                            name="opencodeUrl"
+                            class="form-input"
+                            value="http://127.0.0.1:4096"
+                            aria-describedby="opencodeUrl-hint opencodeUrl-error"
+                          >
+                          <span id="opencodeUrl-hint" class="form-hint">
+                            URL of the OpenCode server.
+                          </span>
+                          <span id="opencodeUrl-error" class="form-error hidden" role="alert"></span>
+                        </div>
+
+                        <div class="form-group">
+                          <label for="opencodeHeader" class="form-label">
+                            Custom Header
+                          </label>
+                          <input
+                            type="text"
+                            id="opencodeHeader"
+                            name="opencodeHeader"
+                            class="form-input"
+                            placeholder="X-Auth-Token: mytoken"
+                            aria-describedby="opencodeHeader-hint opencodeHeader-error"
+                          >
+                          <span id="opencodeHeader-hint" class="form-hint">
+                            Optional: Custom HTTP header in "Key: Value" format
+                          </span>
+                          <span id="opencodeHeader-error" class="form-error hidden" role="alert"></span>
+                        </div>
+
+                        <div class="form-row">
+                          <div class="form-group">
+                            <label for="opencodeUsername" class="form-label">
+                              Username
+                            </label>
+                            <input
+                              type="text"
+                              id="opencodeUsername"
+                              name="opencodeUsername"
+                              class="form-input"
+                              placeholder="user"
+                              aria-describedby="opencodeUsername-error"
+                            >
+                            <span id="opencodeUsername-error" class="form-error hidden" role="alert"></span>
+                          </div>
+
+                          <div class="form-group">
+                            <label for="opencodePassword" class="form-label">
+                              Password
+                            </label>
+                            <input
+                              type="password"
+                              id="opencodePassword"
+                              name="opencodePassword"
+                              class="form-input"
+                              placeholder="password"
+                              aria-describedby="opencodePassword-error"
+                            >
+                            <span id="opencodePassword-error" class="form-error hidden" role="alert"></span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              </details>
 
               <div class="form-group" style="margin-top: var(--space-8);">
                 <button

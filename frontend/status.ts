@@ -1,50 +1,11 @@
 /**
  * Status Page WebSocket Client + HTTP Polling Fallback
- *
- * Handles real-time pipeline status updates via WebSocket,
- * with HTTP polling as a fallback for opencode_url, current_agent, and latest_message.
  */
-
-type PipelineStage = 'clarify' | 'design' | 'task' | 'dev' | 'test' | 'review' | 'validate';
-type StageStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-
-interface StageResult {
-  status: StageStatus;
-  attempts: number;
-  output?: string;
-  error?: string;
-}
-
-interface PipelineStatus {
-  session_id: string;
-  pipeline: {
-    current_stage: PipelineStage | 'completed' | 'failed';
-    started_at: string;
-    updated_at: string;
-  };
-  stages: Record<PipelineStage, StageResult>;
-  errors: Array<{
-    stage: PipelineStage;
-    message: string;
-    timestamp: string;
-    recoverable: boolean;
-  }>;
-}
 
 interface WebSocketMessage {
   event: string;
   data: Record<string, unknown>;
 }
-
-const STAGE_ORDER: PipelineStage[] = [
-  'clarify',
-  'design',
-  'task',
-  'dev',
-  'test',
-  'review',
-  'validate',
-];
 
 const WS_URL = `ws://${window.location.host}/ws`;
 const RECONNECT_DELAY = 3000;
@@ -55,9 +16,9 @@ class StatusPage {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
   private sessionId: string | null = null;
-  private currentStatus: PipelineStatus | null = null;
   private pollTimer: number | null = null;
   private opencodeUrl: string | null = null;
+  private lastError: string | null = null;
 
   constructor() {
     this.init();
@@ -125,57 +86,30 @@ class StatusPage {
         this.updateRepoName(data.repo_name);
       }
 
-      const currentAgent = typeof data.current_agent === 'string' ? data.current_agent : undefined;
-      const latestMessage = typeof data.latest_message === 'string' ? data.latest_message : undefined;
       const status = typeof data.status === 'string' ? data.status : 'pending';
+      const currentStage = typeof data.current_agent === 'string' ? data.current_agent : undefined;
+      const latestMessage = typeof data.latest_message === 'string' ? data.latest_message : undefined;
 
-      if (currentAgent) {
-        this.updateCurrentAgent(currentAgent);
-      }
       if (latestMessage !== undefined) {
         this.updateLatestMessage(latestMessage || 'Waiting for updates...');
       }
 
-      // Render persisted stages snapshot if available
-      if (data.stages && typeof data.stages === 'object' && data.stages !== null) {
-        const stages = data.stages as Record<string, { status?: string }>;
-        for (const stage of STAGE_ORDER) {
-          const stageData = stages[stage];
-          if (stageData?.status) {
-            this.updateStageIndicator(stage, stageData.status as StageStatus);
-          } else {
-            this.updateStageIndicator(stage, 'pending');
-          }
-        }
-      }
-
-      // Derive progress from current_agent / status if we don't have a full PipelineStatus yet
       if (status === 'completed') {
-        this.updateProgress(100, 'Completed');
-        if (!data.stages) {
-          this.updateAllStagesCompleted();
-        }
+        this.updatePipelineState('Completed', 'completed');
+        this.updateProgress(100);
       } else if (status === 'failed') {
-        this.updateProgress(0, 'Failed');
-      } else if (currentAgent && currentAgent !== 'completed') {
-        const agentStage = currentAgent.replace(' agent', '') as PipelineStage | 'completed';
-        if (STAGE_ORDER.includes(agentStage as PipelineStage)) {
-          const stageIndex = STAGE_ORDER.indexOf(agentStage as PipelineStage);
-          const progress = Math.round((stageIndex / STAGE_ORDER.length) * 100);
-          this.updateProgress(progress, this.formatStageName(agentStage as PipelineStage));
-          // If no stages snapshot from DB, mark previous stages completed, current running
-          if (!data.stages) {
-            for (let i = 0; i < STAGE_ORDER.length; i++) {
-              if (i < stageIndex) {
-                this.updateStageIndicator(STAGE_ORDER[i], 'completed');
-              } else if (i === stageIndex) {
-                this.updateStageIndicator(STAGE_ORDER[i], 'running');
-              } else {
-                this.updateStageIndicator(STAGE_ORDER[i], 'pending');
-              }
-            }
-          }
-        }
+        const errorMsg = this.lastError || 'Pipeline failed';
+        this.updatePipelineState('Failed', 'failed', errorMsg);
+        this.updateProgress(0);
+      } else if (currentStage) {
+        const stepName = currentStage === 'completed'
+          ? 'Completed'
+          : currentStage === 'failed'
+          ? 'Failed'
+          : currentStage.replace(' agent', '');
+        this.updatePipelineState(stepName, 'running');
+      } else {
+        this.updatePipelineState('Initializing', 'pending');
       }
     } catch (err) {
       // ignore polling errors
@@ -260,137 +194,76 @@ class StatusPage {
 
   private handleMessage(message: WebSocketMessage): void {
     switch (message.event) {
-      case 'connected':
-        break;
-
-      case 'pong':
-        break;
-
       case 'progress':
         if (this.isCurrentSession(message.data)) {
           this.handleProgressUpdate(message.data);
         }
         break;
-
-      case 'stage_update':
-        if (this.isCurrentSession(message.data)) {
-          this.handleStageUpdate(message.data as { stage: PipelineStage; status: StageStatus });
-        }
-        break;
-
       case 'completed':
         if (this.isCurrentSession(message.data)) {
-          this.handleCompletion(message.data as { session_id: string });
+          this.handleCompletion();
         }
         break;
-
       case 'failed':
         if (this.isCurrentSession(message.data)) {
-          this.handleFailure(message.data as { stage: PipelineStage; error: string });
+          const error = typeof message.data.error === 'string' ? message.data.error : 'Unknown error';
+          this.handleFailure(error);
         }
         break;
-
       default:
         break;
     }
   }
 
   private handleProgressUpdate(data: Record<string, unknown>): void {
-    // Full PipelineStatus from legacy flow
-    if (data.stages && data.pipeline) {
-      this.currentStatus = data as unknown as PipelineStatus;
-      this.updateUI(this.currentStatus);
-    }
-
-    // Simplified progress from our new polling
     const currentStage = typeof data.current_stage === 'string' ? data.current_stage : undefined;
     const currentAgent = typeof data.current_agent === 'string' ? data.current_agent : undefined;
     const latestMessage = typeof data.latest_message === 'string' ? data.latest_message : undefined;
     const progressPercent = typeof data.progress_percent === 'number' ? data.progress_percent : undefined;
 
-    if (currentAgent) {
-      this.updateCurrentAgent(currentAgent);
-    }
     if (latestMessage !== undefined) {
       this.updateLatestMessage(latestMessage || 'Waiting for updates...');
     }
-    if (currentStage && progressPercent !== undefined) {
-      const label = currentStage === 'completed' ? 'Completed' : this.formatStageName(currentStage as PipelineStage);
-      this.updateProgress(progressPercent, label);
+
+    if (progressPercent !== undefined) {
+      this.updateProgress(progressPercent);
     }
 
-    // Update stage indicators from explicit stages snapshot if provided
-    if (data.stages && typeof data.stages === 'object' && data.stages !== null && !data.pipeline) {
-      const stages = data.stages as Record<string, { status?: string }>;
-      for (const stage of STAGE_ORDER) {
-        const stageData = stages[stage];
-        this.updateStageIndicator(stage, (stageData?.status as StageStatus) || 'pending');
-      }
-    } else if (currentStage && progressPercent !== undefined && !data.stages) {
-      // Fallback: infer from current_stage
-      if (currentStage !== 'completed' && currentStage !== 'failed' && STAGE_ORDER.includes(currentStage as PipelineStage)) {
-        const idx = STAGE_ORDER.indexOf(currentStage as PipelineStage);
-        for (let i = 0; i < STAGE_ORDER.length; i++) {
-          if (i < idx) this.updateStageIndicator(STAGE_ORDER[i], 'completed');
-          else if (i === idx) this.updateStageIndicator(STAGE_ORDER[i], 'running');
-          else this.updateStageIndicator(STAGE_ORDER[i], 'pending');
-        }
-      }
+    const rawStep = currentStage || currentAgent || '-';
+    const stepName = rawStep === 'completed'
+      ? 'Completed'
+      : rawStep === 'failed'
+      ? 'Failed'
+      : rawStep.replace(' agent', '');
+
+    if (rawStep === 'completed') {
+      this.updatePipelineState(stepName, 'completed');
+    } else if (rawStep === 'failed') {
+      this.updatePipelineState(stepName, 'failed', this.lastError || 'Pipeline failed');
+    } else {
+      this.updatePipelineState(stepName, 'running');
     }
   }
 
-  private handleStageUpdate(data: { stage: PipelineStage; status: StageStatus }): void {
-    this.updateStageIndicator(data.stage, data.status);
-
-    if (data.status === 'running') {
-      this.updateProgressStage(data.stage);
-    }
-  }
-
-  private handleCompletion(data: { session_id: string }): void {
+  private handleCompletion(): void {
     this.updateConnectionStatus('connected');
-    this.updateAllStagesCompleted();
-    this.updateProgress(100, 'Completed');
-    this.updateCurrentAgent('completed');
+    this.updatePipelineState('Completed', 'completed');
+    this.updateProgress(100);
     this.stopPolling();
-
     setTimeout(() => {
-      window.location.href = `report.html?session=${data.session_id}`;
+      if (this.sessionId) {
+        window.location.href = `report.html?session=${this.sessionId}`;
+      }
     }, 2000);
   }
 
-  private handleFailure(data: { stage: PipelineStage; error: string }): void {
-    this.updateStageIndicator(data.stage, 'failed');
-    this.showError(`Pipeline failed at stage "${data.stage}": ${data.error}`);
+  private handleFailure(error: string): void {
+    this.lastError = error;
+    this.updatePipelineState('Failed', 'failed', error);
     this.stopPolling();
   }
 
-  private updateUI(status: PipelineStatus): void {
-    this.updateProgressFromStatus(status);
-    this.updateAllStages(status);
-  }
-
-  private updateProgressFromStatus(status: PipelineStatus): void {
-    const currentStage = status.pipeline.current_stage;
-
-    if (currentStage === 'completed') {
-      this.updateProgress(100, 'Completed');
-      return;
-    }
-
-    if (currentStage === 'failed') {
-      this.updateProgress(0, 'Failed');
-      return;
-    }
-
-    const stageIndex = STAGE_ORDER.indexOf(currentStage);
-    const totalStages = STAGE_ORDER.length;
-    const progress = Math.round(((stageIndex) / totalStages) * 100);
-
-    this.updateProgress(progress, this.formatStageName(currentStage));
-  }
-
-  private updateProgress(percent: number, stage: string): void {
+  private updateProgress(percent: number): void {
     const progressFill = document.getElementById('progress-fill');
     const progressPercent = document.getElementById('progress-percent');
     const progressStage = document.getElementById('progress-stage');
@@ -398,30 +271,47 @@ class StatusPage {
     if (progressFill) {
       progressFill.style.width = `${percent}%`;
     }
-
     if (progressPercent) {
       progressPercent.textContent = `${percent}%`;
     }
-
     if (progressStage) {
-      progressStage.textContent = stage;
+      if (percent === 100) {
+        progressStage.textContent = 'Completed';
+      } else if (percent === 0 && this.lastError) {
+        progressStage.textContent = 'Failed';
+      }
     }
   }
 
-  private updateProgressStage(stage: PipelineStage): void {
-    const progressStage = document.getElementById('progress-stage');
-    if (progressStage) {
-      progressStage.textContent = this.formatStageName(stage);
-    }
-  }
+  private updatePipelineState(step: string, status: 'pending' | 'running' | 'completed' | 'failed', error?: string): void {
+    const stepEl = document.getElementById('current-step');
+    const badgeEl = document.getElementById('pipeline-status-badge');
+    const errorBox = document.getElementById('pipeline-error');
+    const errorText = document.getElementById('pipeline-error-text');
 
-  private updateCurrentAgent(agent: string): void {
-    // Show agent info near progress or in a dedicated element if desired
-    // For now, append to progress stage text
-    const progressStage = document.getElementById('progress-stage');
-    if (progressStage && agent && agent !== 'completed' && agent !== 'failed') {
-      const base = progressStage.textContent?.replace(/ \(.+\)$/, '') || '';
-      progressStage.textContent = `${base} (${agent})`;
+    if (stepEl) {
+      stepEl.textContent = step;
+    }
+
+    if (badgeEl) {
+      badgeEl.classList.remove('pending', 'running', 'completed', 'failed');
+      badgeEl.classList.add(status);
+      const labelMap: Record<string, string> = {
+        pending: 'Not started',
+        running: 'In progress',
+        completed: 'Completed',
+        failed: 'Failed',
+      };
+      badgeEl.textContent = labelMap[status] || status;
+    }
+
+    if (errorBox && errorText) {
+      if (status === 'failed' && error) {
+        errorText.textContent = error;
+        errorBox.classList.remove('hidden');
+      } else {
+        errorBox.classList.add('hidden');
+      }
     }
   }
 
@@ -466,9 +356,7 @@ class StatusPage {
             setTimeout(() => {
               copyBtn.textContent = original;
             }, 1500);
-          } catch {
-            // ignore
-          }
+          } catch {}
           document.body.removeChild(textArea);
         });
       };
@@ -490,7 +378,6 @@ class StatusPage {
             copyBtn.textContent = original;
           }, 1500);
         }).catch(() => {
-          // Fallback for older browsers or denied permission
           const textArea = document.createElement('textarea');
           textArea.value = path;
           document.body.appendChild(textArea);
@@ -502,9 +389,7 @@ class StatusPage {
             setTimeout(() => {
               copyBtn.textContent = original;
             }, 1500);
-          } catch {
-            // ignore
-          }
+          } catch {}
           document.body.removeChild(textArea);
         });
       };
@@ -516,56 +401,6 @@ class StatusPage {
     if (el) {
       el.textContent = name;
     }
-  }
-
-  private updateAllStages(status: PipelineStatus): void {
-    for (const stage of STAGE_ORDER) {
-      const stageResult = status.stages[stage];
-      if (stageResult) {
-        this.updateStageIndicator(stage, stageResult.status);
-      }
-    }
-  }
-
-  private updateStageIndicator(stage: PipelineStage, status: StageStatus): void {
-    const step = document.querySelector(`.progress-step[data-stage="${stage}"]`);
-    if (!step) return;
-
-    const dot = step.querySelector('[data-dot]');
-    if (dot) {
-      dot.classList.remove('pending', 'running', 'completed', 'failed');
-      dot.classList.add(status);
-    }
-  }
-
-  private updateAllStagesCompleted(): void {
-    for (const stage of STAGE_ORDER) {
-      this.updateStageIndicator(stage, 'completed');
-    }
-  }
-
-  private formatStageName(stage: PipelineStage): string {
-    const names: Record<PipelineStage, string> = {
-      clarify: 'Clarifying Requirements',
-      design: 'Designing Solution',
-      task: 'Planning Tasks',
-      dev: 'Developing',
-      test: 'Testing',
-      review: 'Reviewing',
-      validate: 'Validating',
-    };
-    return names[stage] || stage;
-  }
-
-  private getStatusText(status: StageStatus): string {
-    const texts: Record<StageStatus, string> = {
-      pending: 'Waiting to start',
-      running: 'In progress...',
-      completed: 'Completed',
-      failed: 'Failed',
-      skipped: 'Skipped',
-    };
-    return texts[status] || status;
   }
 
   private showError(message: string): void {

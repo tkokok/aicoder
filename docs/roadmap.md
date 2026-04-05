@@ -5,18 +5,20 @@
 ## Phase 1: Pipeline Hardening (Current → Next 2 weeks)
 
 ### 1.1 Sub-Agent Invocation Fix
-**Status**: In Progress
+**Status**: Completed
 - **Problem**: AICoder initially tried `@mention` in plain text, which OpenCode does not parse as agent routing.
-- **Fix**: Explicitly instruct AICoder to use the `task` tool with `subagent_type`.
-- **Validation needed**: Run 3-5 end-to-end pipelines to confirm all 7 stages execute correctly.
+- **Fix**: Migrated to a pipeline-as-prompt-module architecture. The backend generates a compact dispatch prompt; AICoder uses the `task` tool with `subagent_type` to invoke sub-agents natively.
+- **Prompt economy**: Parent-agent context is kept minimal by referencing previous stage outputs via file paths instead of embedding their full contents inline.
 
 ### 1.2 Stage Recovery & Resume
+**Status**: In Progress
 **Motivation**: Pipelines can fail mid-way due to LLM API errors (503, rate limits) or sub-agent hallucinations.
 - Save a `checkpoint.json` after every successful stage.
 - On restart, read checkpoints and resume from the last completed stage.
 - UI: "Resume" button on failed sessions.
 
 ### 1.3 Cost & Token Tracking
+**Status**: Pending
 **Motivation**: External OpenCode servers may use expensive models; users need visibility.
 - Track per-stage token usage (input / output / reasoning).
 - Track estimated cost per stage.
@@ -25,16 +27,17 @@
 ## Phase 2: Workflow Flexibility (Next 1 month)
 
 ### 2.1 Pipeline Templates
+**Status**: Partially Complete
 Not all projects need the full 7-stage pipeline.
-- **Minimal**: `clarify → dev → review`
-- **Backend API**: `clarify → design → task → dev → test → review → validate`
-- **Frontend Only**: `clarify → design → dev → review`
-- **Spec-Driven**: `spec → task → dev → test → validate` (see OpenSpec below)
+- **Simple**: `clarify → dev`
+- **Standard**: `clarify → design → dev → review`
+- **Full**: `clarify → design → task → dev → test → review → validate`
+- Future templates: Backend API, Frontend Only, Spec-Driven
 
 Implementation:
-- Define templates in `templates/{name}.json`
-- Frontend template selector on create page
-- AICoder prompt adjusts stage list dynamically
+- Stage orders are defined in `server/pipeline.ts` (`STAGE_ORDERS`).
+- Frontend template selector already supports the three core modes.
+- AICoder receives the stage list dynamically via the backend dispatch prompt.
 
 ### 2.2 Human-in-the-Loop (HITL) Gates
 Allow users to pause the pipeline at specific stages for approval:
