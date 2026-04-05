@@ -522,8 +522,8 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params;
 
       const session = db.prepare(
-        'SELECT id, status, opencode_url, project_path, workspace_path, repo_name, current_agent, latest_message, stages_json, created_at, completed_at FROM sessions WHERE id = ?',
-      ).get(id) as { id: string; status: string; opencode_url?: string; project_path?: string; workspace_path?: string; repo_name?: string; current_agent?: string; latest_message?: string; stages_json?: string; created_at: number; completed_at?: number } | undefined;
+        'SELECT id, status, opencode_url, project_path, workspace_path, repo_name, current_agent, latest_message, messages_json, stages_json, created_at, completed_at FROM sessions WHERE id = ?',
+      ).get(id) as { id: string; status: string; opencode_url?: string; project_path?: string; workspace_path?: string; repo_name?: string; current_agent?: string; latest_message?: string; messages_json?: string; stages_json?: string; created_at: number; completed_at?: number } | undefined;
 
       if (!session) {
         return reply.status(404).send({ error: 'Session not found' });
@@ -669,34 +669,37 @@ function startProgressPolling(
       const progressPercent = Math.round((completedStages / stageOrder.length) * 100);
       const currentAgent = currentStage === 'completed' ? 'completed' : `${currentStage} agent`;
 
-      // Get latest assistant message text (search backwards for non-empty content)
+      // Collect all assistant messages (not just the latest) for full history
       let latestMessage = '';
+      const allMessages: string[] = [];
       try {
         const messages = await client.getMessages(opencodeSessionId);
         const assistantMsgs = messages.filter((m) => m.role === 'assistant');
-        for (let i = assistantMsgs.length - 1; i >= 0; i--) {
-          const msg = assistantMsgs[i];
+        for (const msg of assistantMsgs) {
           if (msg?.parts) {
             const textParts = msg.parts
               .filter((p) => (p.type === 'text' || p.type === 'reasoning') && p.text)
               .map((p) => p.text as string);
             const joined = textParts.join('\n').trim();
             if (joined) {
-              latestMessage = joined.slice(0, 800);
-              break;
+              allMessages.push(joined);
             }
           }
+        }
+        if (allMessages.length > 0) {
+          latestMessage = allMessages[allMessages.length - 1].slice(0, 800);
         }
       } catch {
         // ignore
       }
 
       const stagesJson = JSON.stringify(stagesSnapshot);
+      const messagesJson = JSON.stringify(allMessages);
 
       // Update DB
       db.prepare(
-        `UPDATE sessions SET current_agent = ?, latest_message = ?, stages_json = ? WHERE id = ?`
-      ).run(currentAgent, latestMessage, stagesJson, sessionId);
+        `UPDATE sessions SET current_agent = ?, latest_message = ?, messages_json = ?, stages_json = ? WHERE id = ?`
+      ).run(currentAgent, latestMessage, messagesJson, stagesJson, sessionId);
 
       // Broadcast
       broadcast({
@@ -706,6 +709,7 @@ function startProgressPolling(
           current_stage: currentStage,
           current_agent: currentAgent,
           latest_message: latestMessage,
+          messages_json: messagesJson,
           progress_percent: progressPercent,
           stages: stagesSnapshot,
         },

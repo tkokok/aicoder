@@ -31,6 +31,21 @@ class StatusPage {
       this.startPolling();
     }
     this.connectWebSocket();
+
+    const toggleBtn = document.getElementById('toggle-history-btn');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        const container = document.getElementById('messages-history');
+        const isExpanded = toggleBtn.getAttribute('aria-expanded') === 'true';
+        const newExpanded = !isExpanded;
+        toggleBtn.setAttribute('aria-expanded', String(newExpanded));
+        if (container) {
+          container.style.display = newExpanded ? 'block' : 'none';
+        }
+        const count = container?.children.length || 0;
+        toggleBtn.textContent = newExpanded ? `Hide History (${count})` : `Show Full History (${count})`;
+      });
+    }
   }
 
   private getSessionIdFromUrl(): string | null {
@@ -89,9 +104,18 @@ class StatusPage {
       const status = typeof data.status === 'string' ? data.status : 'pending';
       const currentStage = typeof data.current_agent === 'string' ? data.current_agent : undefined;
       const latestMessage = typeof data.latest_message === 'string' ? data.latest_message : undefined;
+      let messagesList: string[] | undefined;
+      if (data.messages_json && typeof data.messages_json === 'string') {
+        try {
+          messagesList = JSON.parse(data.messages_json) as string[];
+        } catch {}
+      }
 
       if (latestMessage !== undefined) {
         this.updateLatestMessage(latestMessage || 'Waiting for updates...');
+      }
+      if (messagesList !== undefined) {
+        this.updateMessagesHistory(messagesList);
       }
 
       if (status === 'completed') {
@@ -219,10 +243,19 @@ class StatusPage {
     const currentStage = typeof data.current_stage === 'string' ? data.current_stage : undefined;
     const currentAgent = typeof data.current_agent === 'string' ? data.current_agent : undefined;
     const latestMessage = typeof data.latest_message === 'string' ? data.latest_message : undefined;
+    let messagesList: string[] | undefined;
+    if (data.messages_json && typeof data.messages_json === 'string') {
+      try {
+        messagesList = JSON.parse(data.messages_json) as string[];
+      } catch {}
+    }
     const progressPercent = typeof data.progress_percent === 'number' ? data.progress_percent : undefined;
 
     if (latestMessage !== undefined) {
       this.updateLatestMessage(latestMessage || 'Waiting for updates...');
+    }
+    if (messagesList !== undefined) {
+      this.updateMessagesHistory(messagesList);
     }
 
     if (progressPercent !== undefined) {
@@ -319,6 +352,26 @@ class StatusPage {
     const el = document.getElementById('latest-message');
     if (el) {
       el.textContent = text;
+    }
+  }
+
+  private updateMessagesHistory(messages: string[]): void {
+    const container = document.getElementById('messages-history');
+    const toggleBtn = document.getElementById('toggle-history-btn');
+    if (!container) return;
+
+    container.innerHTML = '';
+    for (const msg of messages) {
+      const item = document.createElement('div');
+      item.style.cssText = 'padding: var(--space-3); border-bottom: 1px solid var(--color-neutral-100); white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--font-size-sm); color: var(--color-neutral-700);';
+      item.textContent = msg;
+      container.appendChild(item);
+    }
+
+    if (toggleBtn) {
+      const count = messages.length;
+      const isExpanded = toggleBtn.getAttribute('aria-expanded') === 'true';
+      toggleBtn.textContent = isExpanded ? `Hide History (${count})` : `Show Full History (${count})`;
     }
   }
 

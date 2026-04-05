@@ -48,6 +48,7 @@ function runMigrations() {
     ['sessions', 'opencode_password', 'TEXT'],
     ['sessions', 'workspace_path', 'TEXT'],
     ['sessions', 'repo_name', 'TEXT'],
+    ['sessions', 'messages_json', 'TEXT'],
     ['session_inputs', 'model', 'TEXT'],
     ['session_inputs', 'subagent_model', 'TEXT'],
   ];

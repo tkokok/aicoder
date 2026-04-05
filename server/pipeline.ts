@@ -659,28 +659,6 @@ async function sendPromptWithRetry(
   throw new Error('Max retries exceeded for Main Agent dispatch');
 }
 
-function extractJSON(text: string): unknown {
-  const codeBlockMatches = [...text.matchAll(/```(?:json)?\s*\n?([\s\S]*?)```/g)];
-  for (let i = codeBlockMatches.length - 1; i >= 0; i--) {
-    try {
-      return JSON.parse(codeBlockMatches[i][1].trim());
-    } catch {}
-  }
-
-  const braceMatches = [...text.matchAll(/\{[\s\S]*\}/g)];
-  for (let i = braceMatches.length - 1; i >= 0; i--) {
-    try {
-      return JSON.parse(braceMatches[i][0]);
-    } catch {}
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
 function isRecoverableError(error: unknown): boolean {
   if (error instanceof Error) {
     const recoverablePatterns = [
