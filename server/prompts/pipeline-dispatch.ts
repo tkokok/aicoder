@@ -101,10 +101,11 @@ ${stageEntries.join('\n\n')}
 1. Iterate through stage_order in order.
 2. Before calling \`task\` for a stage, output a visible text message:
    "🚀 Starting stage {index}/{total}: {stage_name}"
-3. Call the \`task\` tool with:
+3. Call the \`task\` tool with ALL of these fields:
    - description: a short 3-5 word summary of the stage
    - subagent_type: the exact stage name
    - prompt: the prompt provided for that stage above (forward it verbatim)
+   - run_in_background: false (REQUIRED)
    - task_id: if retrying a failed attempt, reuse the previous task_id
 4. WAIT for the \`task\` tool to return.
 5. Validate the result using the checklist below.

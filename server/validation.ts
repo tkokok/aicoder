@@ -101,8 +101,7 @@ export function validateRequirements(requirements: unknown): true | string {
  */
 export function validateTechStack(techStack: unknown): true | string {
   if (techStack === undefined || techStack === null) {
-    log.warn('Tech stack validation failed: required', { field: 'tech_stack', reason: 'required' });
-    return "Tech stack is required";
+    return true; // Optional field
   }
   if (typeof techStack !== "string") {
     log.warn('Tech stack validation failed: not a string', { field: 'tech_stack', reason: 'type' });
@@ -110,8 +109,7 @@ export function validateTechStack(techStack: unknown): true | string {
   }
   const trimmed = techStack.trim();
   if (trimmed.length === 0) {
-    log.warn('Tech stack validation failed: empty', { field: 'tech_stack', reason: 'empty' });
-    return "Tech stack cannot be empty or whitespace-only";
+    return true; // Optional field
   }
   if (trimmed.length > TECH_STACK_MAX_LENGTH) {
     log.warn('Tech stack validation failed: too long', { field: 'tech_stack', reason: 'max_length', length: trimmed.length, max: TECH_STACK_MAX_LENGTH });
