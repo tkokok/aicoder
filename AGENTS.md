@@ -2,7 +2,15 @@
 
 ## Overview
 
-AICoder is a strict 7-stage pipeline orchestrator built on top of OpenCode.
+AICoder is a pipeline orchestrator built on top of OpenCode.
+
+The architecture has **three layers**:
+
+1. **Pipeline (Backend)**: A state machine that decides which stage to run next, based on the selected mode (`simple`, `standard`, `full`). It generates a compact dispatch prompt for the main agent and advances when the main agent reports completion.
+2. **Main Agent (AICoder)**: The strict dispatcher. It receives one stage at a time from the pipeline, calls the `task` tool to spawn the correct sub-agent, validates the result, saves JSON to disk, and returns `finish: "stop"`.
+3. **Sub-Agents (`clarify`, `design`, `task`, `dev`, `test`, `review`, `validate`)**: Specialists that perform the actual work for their stage.
+
+---
 
 ## Critical Implementation Notes
 
@@ -31,7 +39,25 @@ The primary orchestrator agent filename and agent identifier is **`AICoder`** (n
 - File: `agents/AICoder.md`
 - API call: `{ agent: 'AICoder' }`
 
-### 3. Workspace Model
+### 3. Pipeline Modes
+
+The backend pipeline supports three modes. The backend tells AICoder which mode to run, but **AICoder only sees one stage at a time**.
+
+| Mode | Stages |
+|------|--------|
+| `simple` (was `fast`) | `clarify → dev` |
+| `standard` | `clarify → design → dev → review` |
+| `full` | `clarify → design → task → dev → test → review → validate` |
+
+### 4. Prompt Economy (CRITICAL)
+
+To prevent the main agent's context from exploding (which previously caused dispatch latency to grow from ~10s to >200s), the **backend must keep the dispatch prompt minimal**:
+
+- ❌ **Do NOT** embed full previous stage outputs into the prompt
+- ✅ **DO** provide file paths (e.g. `run-{sessionId}/clarify.json`) and let AICoder read them if needed
+- ✅ **DO** keep the dispatch prompt under ~500 tokens
+
+### 5. Workspace Model
 
 **New Project Mode**
 - Managed project directory: `~/.aicoder/projects/{sanitized-name}/`
@@ -45,19 +71,22 @@ The primary orchestrator agent filename and agent identifier is **`AICoder`** (n
 - Command: `git worktree add "{projectDir}/workspace" -b aicoder-{branch}`
 - This keeps the original repository untouched
 
-### 4. External OpenCode Server
+### 6. External OpenCode Server
 
 If the user provides an external `opencodeUrl` (e.g. `http://localhost:4096`):
 - **DO NOT** spawn a local `opencode serve` process
 - Connect directly via HTTP client
 - Pass the same `client` instance into `executePipeline()` to avoid duplicate process creation
 
-### 5. Pipeline Flow
+### 7. Pipeline Flow
 
-1. AICoder receives the user prompt
-2. AICoder calls `task` tool → `clarify` sub-agent
-3. AICoder validates output, saves JSON to `run-{sessionId}/clarify.json`
-4. Repeat for all 7 stages in strict order
-5. Return final JSON with `finish: "stop"`
+1. Backend receives user requirements and selects a pipeline mode
+2. Backend sends a **minimal dispatch prompt** to AICoder: "Run stage X. Context files: [list]. Output path: run-{id}/X.json"
+3. AICoder calls `task` tool → launches the stage sub-agent
+4. Sub-agent completes and returns result to AICoder
+5. AICoder validates output, saves JSON to `run-{sessionId}/{stage}.json`
+6. AICoder returns `finish: "stop"` to the backend
+7. Backend advances to the next stage and repeats
+8. After all stages, pipeline marks session `completed`
 
 See `docs/` for more detailed architecture documentation.

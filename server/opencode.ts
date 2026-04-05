@@ -347,9 +347,9 @@ export class OpenCodeClient {
   async sendMessage(
     sessionId: string,
     parts: PromptPart[],
-    opts?: { agent?: string; model?: string }
+    opts?: { agent?: string; model?: string; noReply?: boolean }
   ): Promise<void> {
-    const body: { parts: PromptPart[]; agent?: string; model?: { providerID: string; modelID: string } } = { parts };
+    const body: { parts: PromptPart[]; agent?: string; model?: { providerID: string; modelID: string }; noReply?: boolean } = { parts };
     if (opts?.agent) {
       body.agent = opts.agent;
     }
@@ -361,8 +361,11 @@ export class OpenCodeClient {
         body.model = { providerID: opts.model, modelID: opts.model };
       }
     }
+    if (opts?.noReply) {
+      body.noReply = true;
+    }
     const textParts = parts.filter(p => p.type === 'text').map(p => (p as { type: 'text'; text: string }).text.slice(0, 100));
-    log.info('client', `Sending message to session ${sessionId}, agent=${opts?.agent || 'default'}`);
+    log.info('client', `Sending message to session ${sessionId}, agent=${opts?.agent || 'default'}, noReply=${opts?.noReply || false}`);
     log.info('client', `  parts preview: ${JSON.stringify(textParts)}`);
     await this.request<void>('POST', `/session/${sessionId}/prompt_async`, body);
     log.info('client', `Message sent (async, fire-and-forget)`);

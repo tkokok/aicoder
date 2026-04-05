@@ -576,6 +576,13 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
           }
 
           if (stageResult.status === 'completed') {
+            // Inject a no-reply progress note into the parent session so the
+            // OpenCode UI shows something, without waking up the AICoder agent.
+            options.client.sendMessage(
+              options.opencodeSessionId,
+              [{ type: 'text', text: `Stage "${stage}" completed.` }],
+              { noReply: true }
+            ).catch(() => {});
             break;
           }
 
