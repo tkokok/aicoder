@@ -84,6 +84,11 @@ export function transaction<T>(fn: () => T): T {
   }
 }
 
+export function closeDb(): void {
+  log.info('Closing database connection', { operation: 'close' });
+  db.close();
+}
+
 export function generateId(): string {
   const id = randomUUID();
   log.debug(`Generated new ID: ${id.slice(0, 8)}...`, { operation: 'generate_id' });

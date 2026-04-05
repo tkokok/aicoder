@@ -3,8 +3,8 @@ import { db, transaction, generateId } from './db';
 import { validateSessionInput, SessionInput } from './validation';
 import { OpenCodeManager, OpenCodeClient, type SSEEvent } from './opencode';
 import { executePipeline, readStatusFile, STAGE_ORDER, getStageOrder, type PipelineMode } from './pipeline';
-import { mkdir, cp, access, rm, stat, readFile, writeFile } from 'fs/promises';
-import { join, dirname, basename } from 'path';
+import { mkdir, cp, rm, stat, readFile, writeFile } from 'fs/promises';
+import { join, basename } from 'path';
 import { homedir } from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -207,24 +207,22 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.send({ models: modelsCache.models, default: modelsCache.default });
     }
 
+    // Use external OpenCode server instead of spawning temporary process
+    const defaultUrl = 'http://127.0.0.1:4096';
     const tempDir = join(homedir(), '.aicoder', '.temp-model-fetch');
     try {
       await mkdir(tempDir, { recursive: true });
-      const { client } = await OpenCodeManager.getOrCreate(tempDir);
+      const { client } = OpenCodeManager.getOrCreateExternal(tempDir, defaultUrl);
       const models = await client.getModels();
       modelsCache = { models, default: 'zhipuai-coding-plan/glm-4.7-flashx', fetchedAt: Date.now() };
       return reply.send({ models, default: modelsCache.default });
     } catch (error) {
-      fastify.log.error({ err: error }, 'Failed to fetch models');
+      logger.error('Failed to fetch models', error, { component: 'routes', operation: 'fetch_models', opencode_url: defaultUrl });
       return reply.status(502).send({
         models: [],
         default: 'zhipuai-coding-plan/glm-4.7-flashx',
         error: 'Failed to fetch models from OpenCode',
       });
-    } finally {
-      if (OpenCodeManager.isManagedProcess(tempDir)) {
-        OpenCodeManager.shutdown(tempDir);
-      }
     }
   });
 
@@ -364,12 +362,13 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       const opencodeEnv = typeof input.opencodeEnv === 'string' ? input.opencodeEnv.trim() : 'external';
 
       if (opencodeEnv === 'random') {
+        let createdProcess: { process: { url: string }, client: OpenCodeClient } | null = null;
         try {
           logger.info(`Getting/creating OpenCode process`, { component: 'routes', operation: 'opencode_create', project_dir: projectDir });
-          const created = await OpenCodeManager.getOrCreate(projectDir);
-          client = created.client;
-          logger.info(`OpenCode process ready`, { component: 'routes', operation: 'opencode_ready', opencode_url: created.process.url });
-          opencodeUrl = created.process.url;
+          createdProcess = await OpenCodeManager.getOrCreate(projectDir);
+          client = createdProcess.client;
+          logger.info(`OpenCode process ready`, { component: 'routes', operation: 'opencode_ready', opencode_url: createdProcess.process.url });
+          opencodeUrl = createdProcess.process.url;
 
           logger.info(`Creating OpenCode session with title: ${projectName}`, { component: 'routes', operation: 'opencode_session', project_name: projectName });
           const opencodeSession = await client.createSession({
@@ -379,6 +378,11 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
           logger.info(`OpenCode session created`, { component: 'routes', operation: 'opencode_session', opencode_session_id: opencodeSessionId });
         } catch (error) {
           logger.error('Failed to create OpenCode session', error, { component: 'routes', operation: 'opencode_create' });
+          // Cleanup: shutdown process if it was created
+          if (createdProcess) {
+            logger.info(`Shutting down process due to error`, { component: 'routes', operation: 'opencode_cleanup', project_dir: projectDir });
+            OpenCodeManager.shutdown(projectDir);
+          }
           return reply.status(502).send({
             error: 'Failed to create session with OpenCode',
           });
@@ -438,6 +442,11 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         });
       } catch (error) {
         logger.error('Failed to create session in database', error, { component: 'routes', operation: 'db_insert', session_id: sessionId });
+        // Cleanup: shutdown process if in random mode
+        if (!isExternal && OpenCodeManager.isManagedProcess(projectDir)) {
+          logger.info(`Shutting down process due to db error`, { component: 'routes', operation: 'shutdown_process', session_id: sessionId });
+          OpenCodeManager.shutdown(projectDir);
+        }
         return reply.status(500).send({
           error: 'Failed to create session',
         });
@@ -646,7 +655,8 @@ function startProgressPolling(
   let lastStagesSnapshot: Record<string, { status: string }> | null = null;
   let lastCurrentStage: string | null = null;
 
-  // Server-side accumulated message history
+  // Server-side accumulated message history (limited to prevent memory leak)
+  const MAX_STORED_MESSAGES = 1000;
   const accumulatedMessages: string[] = [];
   const seenMessageTexts = new Set<string>();
 
@@ -749,6 +759,11 @@ function startProgressPolling(
             if (joined && !seenMessageTexts.has(joined)) {
               seenMessageTexts.add(joined);
               accumulatedMessages.push(joined);
+              // Limit memory usage - keep only last N messages
+              if (accumulatedMessages.length > MAX_STORED_MESSAGES) {
+                const removed = accumulatedMessages.shift();
+                if (removed) seenMessageTexts.delete(removed);
+              }
             }
           }
         }

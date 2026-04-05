@@ -6,7 +6,7 @@ import Fastify from 'fastify';
 import { registerRoutes } from './routes';
 import websocketPlugin from './websocket';
 import { OpenCodeManager } from './opencode';
-import { db } from './db';
+import { db, closeDb } from './db';
 import { join } from 'path';
 import logger from './logger';
 import { fileURLToPath } from 'url';
@@ -18,7 +18,7 @@ const fastify = Fastify({
 });
 
 fastify.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
-  fastify.log.error({ err: error }, 'Request error');
+  logger.error('Request error', error, { component: 'server', operation: 'request_error', path: request.url, method: request.method });
   reply.status(error.statusCode || 500).send({
     error: error.message || 'Internal Server Error',
   });
@@ -71,6 +71,7 @@ async function start() {
       OpenCodeManager.shutdownAll();
       try {
         await fastify.close();
+        closeDb();
         logger.info('Server closed successfully', { component: 'server' });
         process.exit(0);
       } catch (err) {
