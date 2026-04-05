@@ -99,8 +99,8 @@ export async function registerCallbackRoutes(fastify: FastifyInstance): Promise<
     try {
       const stagesJson = JSON.stringify(event.stages);
       db.prepare(
-        `UPDATE sessions SET current_agent = ?, stages_json = ? WHERE id = ?`
-      ).run(event.currentStage, stagesJson, event.sessionId);
+        `UPDATE sessions SET status = ?, current_agent = ?, stages_json = ? WHERE id = ?`
+      ).run(event.overallStatus, event.currentStage, stagesJson, event.sessionId);
 
       (fastify as any).broadcastEvent?.({
         type: 'progress',

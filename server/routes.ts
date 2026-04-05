@@ -172,11 +172,14 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         s.current_agent,
         s.created_at,
         s.completed_at,
+        s.agent_id,
+        a.name as agent_name,
         si.project_name,
         si.requirements,
         si.tech_stack
       FROM sessions s
       LEFT JOIN session_inputs si ON s.id = si.session_id
+      LEFT JOIN agents a ON s.agent_id = a.id
       ORDER BY s.created_at DESC
     `).all() as Array<{
       id: string;
@@ -185,6 +188,8 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       current_agent?: string;
       created_at: number;
       completed_at?: number;
+      agent_id?: string;
+      agent_name?: string;
       project_name: string;
       requirements: string;
       tech_stack: string;
@@ -196,6 +201,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
         status: r.status,
         opencode_url: r.opencode_url || null,
         current_agent: r.current_agent || null,
+        agent_name: r.agent_name || (r.agent_id ? r.agent_id : 'local'),
         project_name: r.project_name,
         requirements: r.requirements,
         tech_stack: r.tech_stack,
@@ -489,6 +495,7 @@ export async function registerRoutes(fastify: FastifyInstance): Promise<void> {
       };
 
       const sessionLogger = createSessionLogger(sessionId);
+      db.prepare(`UPDATE sessions SET status = 'running' WHERE id = ?`).run(sessionId);
       executePipeline({
         sessionId,
         opencodeSessionId,

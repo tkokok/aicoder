@@ -533,6 +533,21 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
     pollMessages().catch(() => {});
   }, 3000);
 
+  // Notify control plane that pipeline is running
+  await notifyPipelineStatus({
+    sessionId,
+    currentStage: stageOrder[0] || 'completed',
+    overallStatus: 'running',
+    stages: Object.fromEntries(
+      stageOrder.map((s) => [s, {
+        status: checkpoint.stages[s].status,
+        attempts: checkpoint.stages[s].attempts,
+        error: checkpoint.stages[s].error,
+      }])
+    ),
+    timestamp: Date.now(),
+  });
+
   // Send playbook
   try {
     const tSendStart = Date.now();

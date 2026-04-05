@@ -3,6 +3,7 @@ interface SessionItem {
   status: string;
   opencode_url: string | null;
   current_agent: string | null;
+  agent_name: string;
   project_name: string;
   requirements: string;
   tech_stack: string;
@@ -108,8 +109,9 @@ class SessionListPage {
           <tr>
             <th>Project</th>
             <th>Status</th>
-            <th class="hide-sm">Current Agent</th>
+            <th class="hide-sm">Agent</th>
             <th class="hide-sm">Created</th>
+            <th class="hide-sm">Ended</th>
             <th style="text-align: right;">Actions</th>
           </tr>
         </thead>
@@ -131,13 +133,15 @@ class SessionListPage {
 
   private renderSessionRow(s: SessionItem): string {
     const date = new Date(s.created_at).toLocaleString();
+    const endedDate = s.completed_at ? new Date(s.completed_at).toLocaleString() : '-';
     const statusClass = this.statusBadgeClass(s.status);
     return `
       <tr>
         <td><a href="status.html?session=${encodeURIComponent(s.id)}">${this.escapeHtml(s.project_name)}</a></td>
         <td><span class="badge ${statusClass}">${s.status}</span></td>
-        <td class="hide-sm">${this.escapeHtml(s.current_agent || '-')}</td>
+        <td class="hide-sm">${this.escapeHtml(s.agent_name || 'local')}</td>
         <td class="hide-sm">${date}</td>
+        <td class="hide-sm">${endedDate}</td>
         <td style="text-align: right;">
           <div style="display: inline-flex; gap: 8px;">
             <a href="status.html?session=${encodeURIComponent(s.id)}" class="btn btn-primary" style="padding: 5px 10px;">View</a>
