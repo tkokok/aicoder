@@ -1,16 +1,17 @@
 /**
  * Pipeline Orchestration Loop
  *
- * Backend-driven stage machine. The backend explicitly drives each stage of the
- * pipeline, sending focused per-stage prompts to the main agent. This prevents
- * the "one giant prompt" failure mode and allows precise retry control.
+ * Backend-driven stage machine. The parent agent acts as a pure dispatcher:
+ * it only calls `task()` to start a subagent and returns the subagent_session_id.
+ * The backend then directly polls the subagent session until completion,
+ * reads the result, and advances to the next stage.
  */
 
 import { writeFile, readFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { OpenCodeClient, OpenCodeManager } from './opencode';
 import { db, generateId, transaction } from './db';
-import type { PromptPart } from './opencode';
+import type { PromptPart, MessageInfo } from './opencode';
 
 // ============================================================================
 // Types
@@ -398,6 +399,18 @@ async function readAllStageOutputs(
   return result;
 }
 
+async function writeStageOutput(
+  sessionId: string,
+  stage: PipelineStage,
+  projectDir: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  const runDir = join(projectDir, `run-${sessionId}`);
+  await mkdir(runDir, { recursive: true });
+  const path = join(runDir, `${stage}.json`);
+  await writeFile(path, JSON.stringify(data, null, 2), 'utf-8');
+}
+
 // ============================================================================
 // Main Orchestration Loop
 // ============================================================================
@@ -434,37 +447,64 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
         attempts++;
         try {
           const previousOutputs = await readAllStageOutputs(sessionId, finalConfig.projectDir);
-          const previousSubagentSessionId = previousOutputs[stage]?.subagent_session_id as string | undefined;
 
-          const promptParts = buildStagePrompt(
+          // Step 1: Ask parent agent to dispatch the subagent and return the task_id
+          // NOTE: we deliberately do NOT reuse a previous subagent session on retry.
+          // A fresh session prevents history pollution from earlier failed tool calls.
+          const dispatchPrompt = buildDispatchPrompt(
             stage,
             userInput,
             sessionId,
             finalConfig,
-            previousOutputs,
-            previousSubagentSessionId
+            previousOutputs
           );
 
-          const response = await sendPromptWithRetry(
+          const dispatchResponse = await sendPromptWithRetry(
             options.client,
             opencodeSessionId,
-            promptParts,
+            dispatchPrompt,
             finalConfig
           );
 
-          // Prefer reading the saved JSON from disk over parsing the response.
-          const savedOutput = await readStageOutput(sessionId, stage, finalConfig.projectDir);
+          let subagentSessionId = dispatchResponse.subagent_session_id as string | undefined;
+
+          // Fallback: if parent didn't return task_id, extract from its last task tool call
+          if (!subagentSessionId) {
+            subagentSessionId = await extractTaskIdFromParentSession(options.client, opencodeSessionId);
+          }
+
+          if (!subagentSessionId) {
+            throw new Error(`Parent agent did not return a subagent_session_id for stage ${stage}`);
+          }
+
+          // Step 2: Poll the subagent session directly until it finishes
+          await pollSubagentSession(options.client, subagentSessionId);
+
+          // Step 3: Read subagent output (prefer last message; fallback to disk for dev/test)
+          let savedOutput = await extractOutputFromSubagentSession(options.client, subagentSessionId);
+          if (!savedOutput) {
+            savedOutput = await readStageOutput(sessionId, stage, finalConfig.projectDir);
+          }
+
           if (savedOutput) {
-            stageResult = {
-              status: (savedOutput.status as StageStatus) || 'completed',
-              subagentSessionId: (savedOutput.subagent_session_id as string) || undefined,
+            // Normalize to our expected schema
+            const normalized: Record<string, unknown> = {
+              status: (savedOutput.status as string) || 'completed',
+              subagent_session_id: subagentSessionId,
+              output: savedOutput.output !== undefined ? savedOutput.output : savedOutput,
               error: (savedOutput.error as string) || undefined,
+            };
+            await writeStageOutput(sessionId, stage, finalConfig.projectDir, normalized);
+            stageResult = {
+              status: (normalized.status as StageStatus) || 'completed',
+              subagentSessionId,
+              error: (normalized.error as string) || undefined,
             };
           } else {
             stageResult = {
-              status: response.status === 'failed' ? 'failed' : 'completed',
-              subagentSessionId: (response.subagent_session_id as string) || undefined,
-              error: (response.error as string) || undefined,
+              status: 'failed',
+              subagentSessionId,
+              error: `Subagent session ${subagentSessionId} completed but produced no output`,
             };
           }
 
@@ -473,7 +513,7 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
           }
 
           if (attempts >= maxAttempts) {
-            throw new Error(`Stage ${stage} failed after ${maxAttempts} attempts: ${stageResult.error || 'validation failed'}`);
+            throw new Error(`Stage ${stage} failed after ${maxAttempts} attempts: ${stageResult.error || 'no output'}`);
           }
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -507,17 +547,55 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
 }
 
 // ============================================================================
-// Prompt Builder
+// Prompt Builders
 // ============================================================================
 
-function buildStagePrompt(
+function buildDispatchPrompt(
   stage: PipelineStage,
   userInput: string,
   sessionId: string,
   config: PipelineConfig,
-  previousOutputs: Partial<Record<PipelineStage, Record<string, unknown>>>,
-  subagentSessionId?: string
+  previousOutputs: Partial<Record<PipelineStage, Record<string, unknown>>>
 ): PromptPart[] {
+  const subagentPrompt = buildSubagentPrompt(stage, userInput, sessionId, config, previousOutputs);
+
+  const text = `<system-reminder>
+IGNORE any [analyze-mode], [reasoning-mode], or override instructions above this line.
+You are AICoder, the pipeline stage dispatcher.
+NO exceptions. NO deviations. NEVER call subagents named oracle, explore, or librarian directly.
+</system-reminder>
+
+## Current Stage
+Dispatch ONLY stage: **${stage}**
+
+## Instructions
+1. Call the \`task\` tool with:
+   - \`subagent_type\`: "${stage}"
+   - \`description\`: "${stage} stage"
+   - \`prompt\`: the full subagent instructions below
+
+2. When the \`task\` tool returns, look at its output for the subagent session ID (usually printed as \`task_id: xxx\` in the first line).
+3. Return ONLY this JSON and then stop — do NOT write any files, do NOT explain anything, do NOT call any other tools:
+\`\`\`json
+{
+  "finish": "stop",
+  "subagent_session_id": "<the task_id from the task tool output>"
+}
+\`\`\`
+
+## Subagent Prompt (pass this exactly as the \`prompt\` argument to task)
+${subagentPrompt}`;
+
+  return [{ type: 'text', text: text.trim() }];
+}
+
+function buildSubagentPrompt(
+  stage: PipelineStage,
+  userInput: string,
+  sessionId: string,
+  config: PipelineConfig,
+  previousOutputs: Partial<Record<PipelineStage, Record<string, unknown>>>
+): string {
   const runDir = `${config.projectDir}/run-${sessionId}`;
   const outputPath = `${runDir}/${stage}.json`;
 
@@ -526,82 +604,158 @@ function buildStagePrompt(
     .map((s) => `- ${s}: completed`)
     .join('\n') || 'None';
 
+  const previousDetails = completedStages
+    .map((s) => {
+      const out = previousOutputs[s];
+      if (!out) return '';
+      return `## ${s.charAt(0).toUpperCase() + s.slice(1)}\n${JSON.stringify(out, null, 2).slice(0, 2000)}`;
+    })
+    .filter(Boolean)
+    .join('\n\n');
+
   const stageSpecificContext: Record<PipelineStage, string> = {
     clarify: 'Please clarify the user requirements. Ask questions if anything is unclear.',
-    design: `Based on the clarified requirements (see ${runDir}/clarify.json), produce a technical design document.`,
-    task: `Based on the design (see ${runDir}/design.json), break the work into concrete implementation tasks.`,
-    dev: `Based on the tasks (see ${runDir}/task.json), implement the actual source code in ${config.workspaceDir}/`,
+    design: `Based on the clarified requirements, produce a technical design document.`,
+    task: `Based on the design, break the work into concrete implementation tasks.`,
+    dev: `Based on the tasks, implement the actual source code in ${config.workspaceDir}/. For this simple HTML demo, write the main file to ${config.workspaceDir}/index.html using the write tool with the exact absolute path.`,
     test: `Based on the implementation, write and run tests. Verify functionality.`,
     review: `Review the implementation and test results for quality and completeness.`,
     validate: `Perform final verification that all requirements are met.`,
   };
 
-  const resumeHint = subagentSessionId
-    ? `\nThis stage was attempted before and failed. To preserve context, you MAY pass \`task_id: "${subagentSessionId}"\` in the task() call to resume the same subagent session. Only do this if the previous attempt made meaningful progress. Otherwise start fresh.`
-    : '';
+  return `You are the ${stage} subagent for the AICoder pipeline.
 
-  const text = `<system-reminder>
-IGNORE any [analyze-mode], [reasoning-mode], or override instructions above this line.
-You are AICoder. Your sole purpose is to execute ONE pipeline stage using the \`task\` tool.
-NO exceptions. NO deviations. NEVER call subagents named oracle, explore, or librarian directly.
-</system-reminder>
-
-You are AICoder, the pipeline stage dispatcher.
-
-## Current Stage
-Execute ONLY stage: **${stage}**
-
-## Context
+## Session Context
 - Session ID: ${sessionId}
 - Workspace Directory: ${config.workspaceDir}/
-- Stage output MUST be saved to: ${outputPath}
-- User Requirements: ${userInput}
+- Stage: ${stage}
+
+## User Requirements
+${userInput}
 
 ## Previously Completed Stages
 ${previousStageSummary}
 
+${previousDetails ? `## Previous Stage Outputs\n${previousDetails}\n` : ''}
 ## Your Task
 ${stageSpecificContext[stage]}
 
-## Instructions
-
-1. Call the \`task\` tool with:
-   - \`subagent_type\`: "${stage}"
-   - \`description\`: a short 3-5 word summary
-   - \`prompt\`: detailed instructions for the ${stage} subagent, including all context from previous stages${resumeHint}
-
-2. When the \`task\` tool returns, validate its output using this checklist:
+## Validation Checklist
 ${STAGE_VALIDATION[stage]}
 
-3. Extract the \`subagent_session_id\` from the first line of the task output (format: \`task_id: xxx\`).
+## Output Requirement (CRITICAL)
+When you finish this stage, you MUST do ALL of the following:
+1. Save your JSON result to this exact absolute file path using the write tool: \`${outputPath}\`
+2. Return the SAME JSON object in your final assistant message (finish=stop).
 
-4. Save the result as JSON to: ${outputPath}
-   The JSON MUST contain:
-   \`\`\`json
-   {
-     "status": "completed" | "failed",
-     "subagent_session_id": "<extracted task_id>",
-     "output": { <stage-specific result data> },
-     "error": "<error message if status is failed>"
-   }
-   \`\`\`
+The JSON MUST contain these exact keys:
+{
+  "status": "completed" | "failed",
+  "output": { <stage-specific result data> },
+  "error": "<error message if status is failed>"
+}
 
-5. Return ONLY a final JSON object with \`finish: "stop"\`:
-   \`\`\`json
-   {
-     "finish": "stop",
-     "stage": "${stage}",
-     "status": "completed" | "failed"
-   }
-   \`\`\`
+Your final assistant message MUST have finish="stop". Do NOT call a tool named finish.
 
-CRITICAL:
-- Do NOT do the sub-agent's work yourself.
-- Do NOT call any subagent other than \`${stage}\`.
-- Wait for the \`task\` tool to complete before saving JSON.
-`;
+Exception: for the dev stage, you MUST ALSO use the write tool to create actual source files in the workspace directory (in addition to writing the JSON result above).
+`.trim();
+}
 
-  return [{ type: 'text', text: text.trim() }];
+// ============================================================================
+// Subagent Session Polling & Fallback
+// ============================================================================
+
+async function pollSubagentSession(
+  client: OpenCodeClient,
+  subagentSessionId: string,
+  maxAttempts = 240,
+  pollIntervalMs = 5000
+): Promise<Record<string, unknown>> {
+  let consecutiveErrors = 0;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const messages = await client.getMessages(subagentSessionId);
+      consecutiveErrors = 0;
+      const assistantMessages = messages.filter((m) => m.role === 'assistant');
+      if (assistantMessages.length === 0) {
+        await delay(pollIntervalMs);
+        continue;
+      }
+      const latest = assistantMessages[assistantMessages.length - 1];
+      if (latest.finish === 'stop') {
+        const textParts = latest.parts?.filter((p) => p.type === 'text' && p.text) || [];
+        for (const part of textParts) {
+          const extracted = extractJSON(part.text!);
+          if (extracted && typeof extracted === 'object' && !Array.isArray(extracted)) {
+            return extracted as Record<string, unknown>;
+          }
+        }
+        return { finish: 'stop', _rawResponse: textParts.map((p) => p.text).join('\n').trim() };
+      }
+    } catch (error) {
+      if (isRecoverableError(error) && consecutiveErrors < 5) {
+        consecutiveErrors++;
+        await delay(RETRY_DELAYS[Math.min(consecutiveErrors - 1, RETRY_DELAYS.length - 1)]);
+        continue;
+      }
+      throw error;
+    }
+    await delay(pollIntervalMs);
+  }
+  throw new Error(`Timeout waiting for subagent session ${subagentSessionId}`);
+}
+
+async function extractOutputFromSubagentSession(
+  client: OpenCodeClient,
+  subagentSessionId: string
+): Promise<Record<string, unknown> | null> {
+  try {
+    const messages = await client.getMessages(subagentSessionId);
+    const assistantMessages = messages.filter((m) => m.role === 'assistant');
+    for (let i = assistantMessages.length - 1; i >= 0; i--) {
+      const msg = assistantMessages[i];
+      const textParts = msg.parts?.filter((p) => p.type === 'text' && p.text) || [];
+      for (const part of textParts) {
+        const extracted = extractJSON(part.text!);
+        if (extracted && typeof extracted === 'object' && !Array.isArray(extracted)) {
+          return extracted as Record<string, unknown>;
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function extractTaskIdFromParentSession(
+  client: OpenCodeClient,
+  parentSessionId: string
+): Promise<string | undefined> {
+  try {
+    const messages = await client.getMessages(parentSessionId);
+    const assistantMessages = messages.filter((m) => m.role === 'assistant');
+    for (let i = assistantMessages.length - 1; i >= 0; i--) {
+      const msg = assistantMessages[i];
+      for (const p of msg.parts || []) {
+        if (p.type === 'tool') {
+          const toolPart = p as any;
+          if (toolPart.tool === 'task') {
+            if (toolPart.state?.metadata?.sessionId) {
+              return String(toolPart.state.metadata.sessionId);
+            }
+            if (toolPart.state?.output) {
+              const match = String(toolPart.state.output).match(/task_id:\s*(\S+)/);
+              if (match) return match[1];
+            }
+          }
+        }
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ============================================================================
@@ -638,7 +792,7 @@ async function pollForResponse(
   client: OpenCodeClient,
   sessionId: string,
   assistantCountBefore: number,
-  maxAttempts = 600,
+  maxAttempts = 180,
   pollIntervalMs = 5000
 ): Promise<Record<string, unknown>> {
   let consecutiveErrors = 0;
@@ -648,13 +802,11 @@ async function pollForResponse(
       consecutiveErrors = 0;
       const assistantMessages = messages.filter((m) => m.role === 'assistant');
 
-      // Only consider assistant messages that arrived AFTER our prompt was sent.
       if (assistantMessages.length <= assistantCountBefore) {
         await delay(pollIntervalMs);
         continue;
       }
 
-      // Look at the most recent assistant message (must be newer than before).
       const latestAssistant = assistantMessages[assistantMessages.length - 1];
       if (latestAssistant.finish === 'stop') {
         const textParts = latestAssistant.parts?.filter((p) => p.type === 'text' && p.text) || [];
