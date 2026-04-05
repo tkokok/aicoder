@@ -308,9 +308,11 @@ export class OpenCodeClient {
     }
   }
 
-  async createSession(opts?: { title?: string }): Promise<SessionInfo> {
-    const body = opts?.title ? { title: opts.title } : {};
-    log.info('client', `Creating session with title: ${opts?.title || '(default)'}`);
+  async createSession(opts?: { title?: string; parentID?: string }): Promise<SessionInfo> {
+    const body: Record<string, unknown> = {};
+    if (opts?.title) body.title = opts.title;
+    if (opts?.parentID) body.parentID = opts.parentID;
+    log.info('client', `Creating session with title: ${opts?.title || '(default)'} parentID: ${opts?.parentID || '(none)'}`);
     const session = await this.request<SessionInfo>('POST', '/session', body);
     log.info('client', `Session created: id=${session.id}, title=${session.title}`);
     return session;
