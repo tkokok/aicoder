@@ -10,11 +10,11 @@ import {
 
 describe("validateProjectName", () => {
   test("returns true for valid project name", () => {
-    expect(validateProjectName("My Project")).toBe(true);
+    expect(validateProjectName("my-project")).toBe(true);
   });
 
   test("returns true for project name at minimum length", () => {
-    expect(validateProjectName("abc")).toBe(true);
+    expect(validateProjectName("abcde")).toBe(true);
   });
 
   test("returns true for project name at maximum length", () => {
@@ -42,7 +42,7 @@ describe("validateProjectName", () => {
   });
 
   test("returns error for name too short", () => {
-    expect(validateProjectName("ab")).toBe("Project name must be at least 3 characters");
+    expect(validateProjectName("ab")).toBe("Project name must be more than 4 characters");
   });
 
   test("returns error for name too long", () => {
@@ -181,8 +181,8 @@ describe("validateTestMethod", () => {
 describe("validateSessionInput", () => {
   test("returns valid for complete valid input", () => {
     const result = validateSessionInput({
-      projectName: "My Project",
-      requirements: "Build a web application with React",
+      projectName: "my-project",
+      requirements: "Build a web application with React that is long enough",
       techStack: "TypeScript, React, Node.js",
       devEnv: "VS Code, Docker",
       testMethod: "Jest",
@@ -193,9 +193,9 @@ describe("validateSessionInput", () => {
 
   test("returns valid for minimal valid input (required fields only)", () => {
     const result = validateSessionInput({
-      projectName: "My Project",
-      requirements: "Build a web application with React",
-      techStack: "TypeScript, React, Node.js",
+      projectName: "my-app",
+      requirements: "Build a web application with React and TypeScript that has at least ten characters",
+      techStack: "TypeScript",
     });
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
@@ -217,11 +217,11 @@ describe("validateSessionInput", () => {
   test("returns errors for invalid project name", () => {
     const result = validateSessionInput({
       projectName: "ab",
-      requirements: "Valid requirements here",
+      requirements: "Valid requirements here that are long enough",
       techStack: "TypeScript",
     });
     expect(result.valid).toBe(false);
-    expect(result.errors).toContain("Project name must be at least 3 characters");
+    expect(result.errors).toContain("Project name must be more than 4 characters");
   });
 
   test("returns multiple errors for multiple invalid fields", () => {
