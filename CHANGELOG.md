@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.2.5] - 2026-04-06
+
+### Added
+- Release assets now include `README.md` and `start.sh` for easier deployment.
+- Release assets now include `.env.example` so users can configure the server out of the box.
+
 ## [2.2.4] - 2026-04-06
 
 ### Changed
