@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.2.4] - 2026-04-06
+
+### Changed
+- Release builds now use a dedicated `tsconfig.release.json` with `sourceMap: false`, producing smaller and cleaner release assets.
+- GitHub Actions release workflow updated to use `bun run build:release` instead of stripping maps after build.
+
 ## [2.2.3] - 2026-04-04
 
 ### Fixed
