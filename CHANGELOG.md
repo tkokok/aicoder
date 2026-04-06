@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.2.7] - 2026-04-06
+
+### Fixed
+- Removed obsolete `MODE=local` from `.env.example`.
+- Changed default `AGENT_PORT` in `.env.example` from 8443 to 2080.
+
+### Changed
+- Agents page: added "+ Add OpenCode Runtime" button in the Add Agent modal to auto-fill runtime config and link.
+
 ## [2.2.6] - 2026-04-06
 
 ### Fixed
