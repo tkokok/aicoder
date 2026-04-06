@@ -57,6 +57,14 @@ export interface PipelineConfig {
   reasoningEffort?: string;
 }
 
+export type Phase =
+  | 'clarify'
+  | 'design'
+  | 'dev'
+  | 'test'
+  | 'review'
+  | 'validate';
+
 export interface PipelineCheckpoint {
   version: 1;
   session_id: string;
@@ -69,6 +77,14 @@ export interface PipelineCheckpoint {
     attempts: number;
     error?: string;
   }>;
+  /** Current phase being executed (post-refactor). */
+  phase?: Phase | 'completed' | 'failed';
+  /** Iteration count for the dev→test→review loop (starts at 1). */
+  iteration?: number;
+  /** Feedback summary passed to the next dev phase. */
+  feedback?: string;
+  /** Which phase produced the feedback ('test' or 'review'). */
+  last_feedback_from?: 'test' | 'review';
 }
 
 // ============================================================================
@@ -123,7 +139,7 @@ export interface OpenCodeClientAuth {
 export interface StartPipelineRequest {
   sessionId: string;
   opencodeSessionId: string;
-  playbook: string;
+  playbook?: string;
   workspaceDir: string;
   projectDir: string;
   mode: PipelineMode;

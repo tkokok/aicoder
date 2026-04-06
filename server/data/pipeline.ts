@@ -18,6 +18,7 @@ import type {
   PipelineStatus,
   PipelineCheckpoint,
   PromptPart,
+  Phase,
 } from '../shared/types.js';
 import {
   ALL_STAGES,
@@ -26,7 +27,7 @@ import {
   RETRY_DELAYS,
   PIPELINE_MAX_IDLE_MS,
 } from '../shared/constants.js';
-import { buildPipelinePlaybook } from '../prompts/pipeline-dispatch.js';
+import { buildPipelinePlaybook, buildPhasePlaybook } from '../prompts/pipeline-dispatch.js';
 import { createSessionLogger, logger } from '../logger.js';
 import { LocalFileSystem } from './filesystem.js';
 import { notifyStageComplete, notifyPipelineComplete, notifyPipelineStatus, notifyMessageUpdate } from './callback.js';
@@ -69,6 +70,7 @@ interface ActivePipeline {
 // ============================================================================
 
 const activePipelines = new Map<string, ActivePipeline>();
+const MAX_DEV_ITERATIONS = 3;
 
 // ============================================================================
 // Checkpoint I/O
@@ -115,6 +117,8 @@ function createCheckpoint(sessionId: string, mode: PipelineMode, stageOrder: Pip
     current_stage_index: 0,
     overall_status: 'running',
     stages,
+    phase: (stageOrder[0] as Phase) || 'completed',
+    iteration: 1,
   };
 }
 
@@ -140,10 +144,9 @@ export async function readStatusFile(
   sessionId: string,
   projectDir: string
 ): Promise<PipelineStatus | null> {
-  const { readFile } = await import('fs/promises');
-  const statusPath = join(projectDir, `run-${sessionId}`, 'status.yaml');
   try {
-    const content = await readFile(statusPath, 'utf-8');
+    const { readFile } = await import('fs/promises');
+    const content = await readFile(join(projectDir, `run-${sessionId}`, 'status.yaml'), 'utf-8');
     return yamlToStatus(content);
   } catch {
     return null;
@@ -272,7 +275,10 @@ function yamlToStatus(yamlContent: string): PipelineStatus {
 
 function checkpointToPipelineStatus(checkpoint: PipelineCheckpoint): PipelineStatus {
   const status = createInitialStatus(checkpoint.session_id, checkpoint.stage_order);
-  status.pipeline.current_stage = checkpoint.stage_order[checkpoint.current_stage_index] || checkpoint.overall_status;
+  const currentStage = checkpoint.phase && checkpoint.phase !== 'completed' && checkpoint.phase !== 'failed'
+    ? checkpoint.phase
+    : checkpoint.stage_order[checkpoint.current_stage_index] || checkpoint.overall_status;
+  status.pipeline.current_stage = currentStage;
   for (const stage of ALL_STAGES) {
     const cs = checkpoint.stages[stage];
     if (cs) {
@@ -284,6 +290,168 @@ function checkpointToPipelineStatus(checkpoint: PipelineCheckpoint): PipelineSta
     }
   }
   return status;
+}
+
+// ============================================================================
+// Phase Logic
+// ============================================================================
+
+function detectTestFailures(output: Record<string, unknown> | null): boolean {
+  if (!output) return false;
+  const failed = Array.isArray(output.failed_tests) && output.failed_tests.length > 0;
+  const gaps = output.gaps as any[];
+  const criticalGaps = Array.isArray(gaps) && gaps.some((g) => g && (g.severity === 'critical' || g.severity === 'high'));
+  const exec = output.test_execution as any;
+  const allPassed = exec && typeof exec.total === 'number' && typeof exec.passed === 'number' && exec.total > 0 && exec.passed === exec.total;
+  return failed || criticalGaps || !allPassed;
+}
+
+function detectReviewApproval(output: Record<string, unknown> | null): boolean {
+  return output?.approved === true;
+}
+
+function summarizeTestFailures(output: Record<string, unknown> | null): string {
+  if (!output) return 'Test phase reported failures.';
+  const parts: string[] = [];
+  const failed = output.failed_tests as any[];
+  if (Array.isArray(failed) && failed.length > 0) {
+    parts.push(`Failed tests: ${failed.map((f) => (typeof f === 'string' ? f : f.name || f.test || JSON.stringify(f))).join(', ')}`);
+  }
+  const gaps = output.gaps as any[];
+  if (Array.isArray(gaps) && gaps.length > 0) {
+    parts.push(`Coverage gaps: ${gaps.map((g) => (typeof g === 'string' ? g : g.description || JSON.stringify(g))).join('; ')}`);
+  }
+  return parts.join('. ') || 'Tests did not fully pass. Please review and fix implementation issues.';
+}
+
+function summarizeReviewIssues(output: Record<string, unknown> | null): string {
+  if (!output) return 'Review phase reported issues.';
+  const parts: string[] = [];
+  const blockers = output.blockers as any[];
+  if (Array.isArray(blockers) && blockers.length > 0) {
+    parts.push(`Blockers: ${blockers.map((b) => (typeof b === 'string' ? b : b.description || JSON.stringify(b))).join(', ')}`);
+  }
+  const issues = output.issues as any[];
+  if (Array.isArray(issues) && issues.length > 0) {
+    const top = issues.slice(0, 3).map((i) => `${i.severity || 'issue'}${i.file ? ` in ${i.file}` : ''}: ${i.description || JSON.stringify(i)}`);
+    parts.push(`Issues: ${top.join('; ')}`);
+  }
+  return parts.join('. ') || 'Code review identified problems that need to be addressed.';
+}
+
+function computeNextPhase(
+  currentPhase: Phase,
+  iteration: number,
+  stageOutput: Record<string, unknown> | null,
+  stageOrder: PipelineStage[]
+): { phase: Phase | 'completed' | 'failed'; iteration: number; feedback?: string; lastFeedbackFrom?: 'test' | 'review' } {
+  if (currentPhase === 'clarify') return { phase: 'design', iteration };
+  if (currentPhase === 'design') return { phase: 'dev', iteration };
+
+  if (currentPhase === 'dev') {
+    return { phase: 'test', iteration };
+  }
+
+  if (currentPhase === 'test') {
+    const hasFailures = detectTestFailures(stageOutput);
+    if (hasFailures) {
+      if (iteration >= MAX_DEV_ITERATIONS) {
+        return { phase: 'failed', iteration, feedback: `Max iterations (${MAX_DEV_ITERATIONS}) exceeded after test failures.` };
+      }
+      return {
+        phase: 'dev',
+        iteration: iteration + 1,
+        feedback: summarizeTestFailures(stageOutput),
+        lastFeedbackFrom: 'test',
+      };
+    }
+    return { phase: 'review', iteration };
+  }
+
+  if (currentPhase === 'review') {
+    const approved = detectReviewApproval(stageOutput);
+    if (!approved) {
+      if (iteration >= MAX_DEV_ITERATIONS) {
+        return { phase: 'failed', iteration, feedback: `Max iterations (${MAX_DEV_ITERATIONS}) exceeded after review rejection.` };
+      }
+      return {
+        phase: 'dev',
+        iteration: iteration + 1,
+        feedback: summarizeReviewIssues(stageOutput),
+        lastFeedbackFrom: 'review',
+      };
+    }
+    const hasValidate = stageOrder.includes('validate');
+    return { phase: hasValidate ? 'validate' : 'completed', iteration };
+  }
+
+  if (currentPhase === 'validate') {
+    return { phase: 'completed', iteration };
+  }
+
+  return { phase: 'completed', iteration };
+}
+
+// ============================================================================
+// Phase Completion Detection
+// ============================================================================
+
+async function waitForPhaseCompletion(
+  client: OpenCodeClient,
+  opencodeSessionId: string,
+  expectedPhase: Phase,
+  projectDir: string,
+  sessionId: string,
+  timeoutMs: number,
+  shouldStop: () => boolean
+): Promise<'completed' | 'stopped' | 'timeout'> {
+  const start = Date.now();
+  let hasJson = false;
+  let hasFinish = false;
+
+  while (Date.now() - start < timeoutMs) {
+    if (shouldStop()) return 'stopped';
+
+    if (!hasJson) {
+      try {
+        const { readFile } = await import('fs/promises');
+        const content = await readFile(join(projectDir, `run-${sessionId}`, `${expectedPhase}.json`), 'utf-8');
+        const parsed = JSON.parse(content) as Record<string, unknown>;
+        if (parsed && typeof parsed.status === 'string') {
+          hasJson = true;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!hasFinish) {
+      try {
+        const messages = await client.getMessages(opencodeSessionId);
+        for (let i = messages.length - 1; i >= Math.max(0, messages.length - 5); i--) {
+          const msg = messages[i];
+          const textParts = msg.parts
+            ?.filter((p) => (p.type === 'text' || p.type === 'reasoning') && p.text)
+            .map((p) => p.text as string) || [];
+          const joined = textParts.join('\n');
+          if (/finish\s*[=:]\s*["']stop["']/i.test(joined)) {
+            hasFinish = true;
+            break;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (hasJson && hasFinish) {
+      return 'completed';
+    }
+
+    await delay(2000);
+  }
+
+  return 'timeout';
 }
 
 // ============================================================================
@@ -317,17 +485,16 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
   checkpoint.stage_order = stageOrder;
   checkpoint.mode = pipelineMode;
 
+  // Migrate old checkpoint
+  if (!checkpoint.phase) {
+    checkpoint.phase = (stageOrder[checkpoint.current_stage_index] as Phase) || 'completed';
+  }
+  if (typeof checkpoint.iteration !== 'number') {
+    checkpoint.iteration = 1;
+  }
+
   let status = checkpointToPipelineStatus(checkpoint);
   await writeStatusFile(sessionId, status, finalConfig.projectDir);
-
-  const playbook = options.playbook || buildPipelinePlaybook({
-    mode: pipelineMode,
-    stageOrder,
-    sessionId,
-    projectDir: finalConfig.projectDir,
-    workspaceDir: finalConfig.workspaceDir,
-    userInput: userInput || '',
-  });
 
   const stageStartTime = Date.now();
   const timing: StageTiming = { stage_start_ms: stageStartTime };
@@ -336,10 +503,9 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
 
   let completed = false;
   let lastProgressMs = Date.now();
-  let lastCompletedCount = 0;
   let timeoutTimer: ReturnType<typeof setInterval> | null = null;
   let messagePollTimer: ReturnType<typeof setInterval> | null = null;
-  let stopWatcher: (() => void) | null = null;
+  let shouldStopFlag = false;
 
   const cleanup = () => {
     if (timeoutTimer) {
@@ -350,12 +516,10 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
       clearInterval(messagePollTimer);
       messagePollTimer = null;
     }
-    if (stopWatcher) {
-      stopWatcher();
-      stopWatcher = null;
-    }
     activePipelines.delete(sessionId);
   };
+
+  const shouldStop = () => completed || shouldStopFlag;
 
   const finishPipeline = async (overallStatus: 'completed' | 'failed', errorMsg?: string) => {
     if (completed) return;
@@ -367,15 +531,16 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
     timing.total_ms = stageEndTime - stageStartTime;
 
     checkpoint.overall_status = overallStatus;
+    checkpoint.phase = overallStatus;
     await saveCheckpoint(checkpoint, finalConfig.projectDir);
 
     if (overallStatus === 'completed') {
       sessionLogger.info(`Pipeline COMPLETED total=${timing.total_ms}ms`, { operation: 'complete' });
     } else {
-      const currentStage = checkpoint.current_stage_index < stageOrder.length
-        ? stageOrder[checkpoint.current_stage_index]
+      const currentStage = checkpoint.phase && checkpoint.phase !== 'completed' && checkpoint.phase !== 'failed'
+        ? checkpoint.phase
         : stageOrder[stageOrder.length - 1];
-      status = addError(status, currentStage, errorMsg || 'Pipeline failed', false);
+      status = addError(status, currentStage as PipelineStage, errorMsg || 'Pipeline failed', false);
       await writeStatusFile(sessionId, status, finalConfig.projectDir);
       sessionLogger.error(`Pipeline FAILED: ${errorMsg}`, new Error(errorMsg || 'Pipeline failed'), { operation: 'fail' });
     }
@@ -387,92 +552,6 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
       timestamp: Date.now(),
     });
   };
-
-  // Watch filesystem for stage outputs
-  stopWatcher = await fs.watchPipeline(sessionId, async (stageName, data) => {
-    if (completed) return;
-
-    const stage = stageName as PipelineStage;
-    // Guard against non-stage JSON files (e.g. task-plan.json)
-    if (!checkpoint.stages[stage]) {
-      sessionLogger.debug(`Ignoring non-stage file: ${stageName}.json`, { operation: 'ignore_file', file: `${stageName}.json` });
-      return;
-    }
-
-    const stageStatus = (data.status as StageStatus) || 'completed';
-    const stageError = (data.error as string) || undefined;
-
-    checkpoint.stages[stage].status = stageStatus;
-    checkpoint.stages[stage].attempts = Math.max(checkpoint.stages[stage].attempts, 1);
-    if (stageError) {
-      checkpoint.stages[stage].error = stageError;
-    }
-
-    status = updateStageStatus(status, stage, stageStatus, checkpoint.stages[stage].attempts, undefined, stageError);
-    await saveCheckpoint(checkpoint, finalConfig.projectDir);
-    await writeStatusFile(sessionId, status, finalConfig.projectDir);
-
-    // Notify control plane
-    const notifyStatus: 'completed' | 'failed' = stageStatus === 'failed' ? 'failed' : 'completed';
-    await notifyStageComplete({
-      sessionId,
-      stage,
-      status: notifyStatus,
-      output: (data.output as Record<string, unknown>) || {},
-      error: stageError,
-      timestamp: Date.now(),
-    });
-
-    // Determine current stage index (never regress)
-    let currentStageIndex = checkpoint.current_stage_index;
-    for (let i = currentStageIndex; i < stageOrder.length; i++) {
-      const s = stageOrder[i];
-      if (checkpoint.stages[s].status === 'completed') {
-        currentStageIndex = i + 1;
-      } else {
-        break;
-      }
-    }
-    checkpoint.current_stage_index = Math.min(currentStageIndex, stageOrder.length);
-    await saveCheckpoint(checkpoint, finalConfig.projectDir);
-
-    const currentStageName = checkpoint.current_stage_index >= stageOrder.length ? 'completed' : stageOrder[checkpoint.current_stage_index];
-    status.pipeline.current_stage = currentStageName;
-    await writeStatusFile(sessionId, status, finalConfig.projectDir);
-
-    // Send status update
-    await notifyPipelineStatus({
-      sessionId,
-      currentStage: currentStageName,
-      overallStatus: 'running',
-      stages: Object.fromEntries(
-        stageOrder.map((s) => [s, {
-          status: checkpoint.stages[s].status,
-          attempts: checkpoint.stages[s].attempts,
-          error: checkpoint.stages[s].error,
-        }])
-      ),
-      timestamp: Date.now(),
-    });
-
-    const completedCount = stageOrder.filter((s) => checkpoint.stages[s].status === 'completed').length;
-
-    if (completedCount === stageOrder.length) {
-      await finishPipeline('completed');
-      return;
-    }
-
-    if (stageStatus === 'failed') {
-      await finishPipeline('failed', stageError || `Stage ${stage} failed`);
-      return;
-    }
-
-    if (completedCount > lastCompletedCount) {
-      lastProgressMs = Date.now();
-      lastCompletedCount = completedCount;
-      sessionLogger.info(`Progress: ${completedCount}/${stageOrder.length} stages completed`, { operation: 'progress' });
-    }
-  });
 
   // Idle timeout check
   timeoutTimer = setInterval(() => {
@@ -536,7 +615,9 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
   // Notify control plane that pipeline is running
   await notifyPipelineStatus({
     sessionId,
-    currentStage: stageOrder[0] || 'completed',
+    currentStage: checkpoint.phase && checkpoint.phase !== 'completed' && checkpoint.phase !== 'failed'
+      ? checkpoint.phase
+      : stageOrder[0] || 'completed',
     overallStatus: 'running',
     stages: Object.fromEntries(
       stageOrder.map((s) => [s, {
@@ -548,26 +629,142 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
     timestamp: Date.now(),
   });
 
-  // Send playbook
-  try {
-    const tSendStart = Date.now();
-    await sendPromptWithRetry(
-      options.client,
-      opencodeSessionId,
-      [{ type: 'text', text: playbook }],
-      finalConfig
-    );
-    sessionLogger.info(`Playbook dispatched in ${Date.now() - tSendStart}ms`, { operation: 'dispatch' });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    sessionLogger.error('Failed to dispatch playbook', error, { operation: 'dispatch_fail' });
-    finishPipeline('failed', errorMessage).catch(() => {});
-  }
+  // Phase loop
+  (async () => {
+    try {
+      while (!shouldStop()) {
+        const phase = checkpoint.phase;
+        if (!phase || phase === 'completed' || phase === 'failed') {
+          break;
+        }
 
-  activePipelines.set(sessionId, { stop: cleanup, sessionId });
+        const stage = phase as PipelineStage;
+        sessionLogger.info(`Phase START phase=${phase} iteration=${checkpoint.iteration}`, { operation: 'phase_start', phase, iteration: checkpoint.iteration });
+
+        // Build and send playbook
+        const playbook = options.playbook || buildPhasePlaybook({
+          mode: pipelineMode,
+          stageOrder,
+          sessionId,
+          projectDir: finalConfig.projectDir,
+          workspaceDir: finalConfig.workspaceDir,
+          userInput: userInput || '',
+          phase,
+          iteration: checkpoint.iteration || 1,
+          feedback: checkpoint.feedback,
+          lastFeedbackFrom: checkpoint.last_feedback_from,
+        });
+
+        const tSendStart = Date.now();
+        await sendPromptWithRetry(
+          options.client,
+          opencodeSessionId,
+          [{ type: 'text', text: playbook }],
+          finalConfig
+        );
+        sessionLogger.info(`Playbook dispatched in ${Date.now() - tSendStart}ms`, { operation: 'dispatch', phase });
+
+        // Wait for phase completion
+        const waitResult = await waitForPhaseCompletion(
+          options.client,
+          opencodeSessionId,
+          phase,
+          finalConfig.projectDir,
+          sessionId,
+          PIPELINE_MAX_IDLE_MS,
+          shouldStop
+        );
+
+        if (waitResult === 'stopped') {
+          sessionLogger.info('Pipeline stopped by user', { operation: 'stop' });
+          return;
+        }
+
+        if (waitResult === 'timeout') {
+          throw new Error(`Phase ${phase} timed out: no progress for ${PIPELINE_MAX_IDLE_MS / 60000} minutes`);
+        }
+
+        // Read stage output
+        const stageOutput = await fs.readStageOutput(sessionId, stage);
+        const stageStatus = (stageOutput?.status as StageStatus) || 'completed';
+        const stageError = (stageOutput?.error as string) || undefined;
+
+        checkpoint.stages[stage].status = stageStatus;
+        checkpoint.stages[stage].attempts = Math.max(checkpoint.stages[stage].attempts, 1);
+        if (stageError) {
+          checkpoint.stages[stage].error = stageError;
+        }
+
+        status = updateStageStatus(status, stage, stageStatus, checkpoint.stages[stage].attempts, undefined, stageError);
+        await saveCheckpoint(checkpoint, finalConfig.projectDir);
+        await writeStatusFile(sessionId, status, finalConfig.projectDir);
+
+        // Notify stage complete
+        await notifyStageComplete({
+          sessionId,
+          stage,
+          status: stageStatus === 'failed' ? 'failed' : 'completed',
+          output: (stageOutput?.output as Record<string, unknown>) || {},
+          error: stageError,
+          timestamp: Date.now(),
+        });
+
+        if (stageStatus === 'failed') {
+          await finishPipeline('failed', stageError || `Stage ${stage} failed`);
+          return;
+        }
+
+        // Compute next phase
+        const next = computeNextPhase(phase, checkpoint.iteration || 1, stageOutput, stageOrder);
+
+        if (next.phase === 'failed') {
+          await finishPipeline('failed', next.feedback || `Phase ${phase} failed`);
+          return;
+        }
+
+        checkpoint.phase = next.phase;
+        checkpoint.iteration = next.iteration;
+        checkpoint.feedback = next.feedback;
+        checkpoint.last_feedback_from = next.lastFeedbackFrom;
+
+        // Update current_stage_index for compatibility
+        const idx = stageOrder.indexOf(next.phase as PipelineStage);
+        checkpoint.current_stage_index = idx >= 0 ? idx : stageOrder.length;
+        await saveCheckpoint(checkpoint, finalConfig.projectDir);
+
+        lastProgressMs = Date.now();
+
+        if (next.phase === 'completed') {
+          await finishPipeline('completed');
+          return;
+        }
+
+        // Notify pipeline status for next phase
+        await notifyPipelineStatus({
+          sessionId,
+          currentStage: next.phase,
+          overallStatus: 'running',
+          stages: Object.fromEntries(
+            stageOrder.map((s) => [s, {
+              status: checkpoint.stages[s].status,
+              attempts: checkpoint.stages[s].attempts,
+              error: checkpoint.stages[s].error,
+            }])
+          ),
+          timestamp: Date.now(),
+        });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      sessionLogger.error('Pipeline error', error, { operation: 'error' });
+      await finishPipeline('failed', errorMessage);
+    }
+  })();
+
+  activePipelines.set(sessionId, { stop: () => { shouldStopFlag = true; cleanup(); }, sessionId });
 
   return {
-    stop: cleanup,
+    stop: () => { shouldStopFlag = true; cleanup(); },
   };
 }
 
