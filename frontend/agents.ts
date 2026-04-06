@@ -45,6 +45,7 @@ class AgentsPage {
     this.deleteError = document.getElementById('delete-error');
 
     document.getElementById('add-agent-btn')?.addEventListener('click', () => this.openAddModal());
+    document.getElementById('fill-opencode-btn')?.addEventListener('click', () => this.fillOpenCodeRuntime());
     this.modalSaveBtn?.addEventListener('click', () => this.saveAgent());
     this.modalCancelBtn?.addEventListener('click', () => this.closeModal());
     this.deleteConfirmBtn?.addEventListener('click', () => this.confirmDelete());
@@ -139,6 +140,11 @@ class AgentsPage {
     this.setFormValue('runtime-link', '');
     this.hideModalError();
     this.openModal();
+  }
+
+  private fillOpenCodeRuntime(): void {
+    this.setFormValue('runtime-config', '{"type":"opencode","url":"http://127.0.0.1:4096"}');
+    this.setFormValue('runtime-link', 'http://127.0.0.1:4096');
   }
 
   private openEditModal(id: string): void {
