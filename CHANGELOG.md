@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.8] - 2026-04-06
+
+### Added
+- Agent management now supports model selection. When creating/editing an Agent, you can test the OpenCode connection and select models for both main agent and subagents.
+- Agents now store `main_model` and `subagent_model` in the database.
+- New API endpoint `POST /api/agents/test-connection` to test OpenCode connection and fetch available models.
+- Create project page now auto-selects the Agent's configured models when an Agent is chosen.
+
 ## [2.2.7] - 2026-04-06
 
 ### Fixed
