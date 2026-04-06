@@ -1,6 +1,6 @@
 {
   "name": "aicoder",
-  "version": "0.1.0",
+  "version": "2.2.3",
   "description": "AICoder MVP - AI-powered coding agent",
   "type": "module",
   "scripts": {
