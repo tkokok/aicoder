@@ -373,7 +373,7 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
       if (!agentId) {
         return reply.status(400).send({ error: 'Validation failed', errors: ['Agent is required'] });
       }
-      const agent = db.prepare('SELECT id, name, agent_url, runtime_link FROM agents WHERE id = ?').get(agentId) as { id: string; name: string; agent_url: string; runtime_link?: string } | undefined;
+      const agent = db.prepare('SELECT id, name, agent_url, runtime_config, runtime_link FROM agents WHERE id = ?').get(agentId) as { id: string; name: string; agent_url: string; runtime_config?: string; runtime_link?: string } | undefined;
       if (!agent) {
         return reply.status(400).send({ error: 'Validation failed', errors: ['Selected agent not found'] });
       }
@@ -414,6 +414,7 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         model: mainModel,
         subagentModel,
         reasoningEffort: input.reasoningEffort && typeof input.reasoningEffort === 'string' ? input.reasoningEffort : 'low',
+        runtimeConfig: agent.runtime_config || undefined,
       };
 
       try {

@@ -142,6 +142,7 @@ export interface StartPipelineRequest {
   model?: string;
   subagentModel?: string;
   reasoningEffort?: string;
+  runtimeConfig?: string;
 }
 
 export interface StartPipelineResponse {

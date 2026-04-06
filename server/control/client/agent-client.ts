@@ -22,6 +22,7 @@ export class AgentClient {
     dataPlaneSessionId: string;
     workspaceDir: string;
     projectDir: string;
+    runtimeConfig?: string;
   }): Promise<{ attached: boolean; error?: string }> {
     const response = await fetch(`${this.baseUrl}/pipeline/${encodeURIComponent(params.sessionId)}/attach`, {
       method: 'POST',
@@ -35,7 +36,7 @@ export class AgentClient {
     return (await response.json()) as { attached: boolean; error?: string };
   }
 
-  async startPipeline(params: StartPipelineRequest): Promise<StartPipelineResponse> {
+  async startPipeline(params: StartPipelineRequest & { runtimeConfig?: string }): Promise<StartPipelineResponse> {
     const response = await fetch(`${this.baseUrl}/pipeline/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

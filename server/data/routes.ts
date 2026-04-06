@@ -22,10 +22,11 @@ export async function registerDataRoutes(fastify: FastifyInstance): Promise<void
       model,
       subagentModel,
       reasoningEffort,
+      runtimeConfig,
     } = body;
 
     try {
-      const runtime = await createAgentRuntime(projectDir);
+      const runtime = await createAgentRuntime(projectDir, runtimeConfig);
 
       await runtime.prepareEnvironment(projectDir, {
         mainModel: model || 'zhipuai-coding-plan/glm-4.7-flashx',
@@ -105,8 +106,9 @@ export async function registerDataRoutes(fastify: FastifyInstance): Promise<void
       dataPlaneSessionId: string;
       workspaceDir: string;
       projectDir: string;
+      runtimeConfig?: string;
     };
-    const { dataPlaneSessionId, workspaceDir, projectDir } = body;
+    const { dataPlaneSessionId, workspaceDir, projectDir, runtimeConfig } = body;
     const sessionId = id;
 
     if (getSession(sessionId)) {
@@ -114,7 +116,7 @@ export async function registerDataRoutes(fastify: FastifyInstance): Promise<void
     }
 
     try {
-      const runtime = await createAgentRuntime(projectDir);
+      const runtime = await createAgentRuntime(projectDir, runtimeConfig);
 
       const unsubscribeSSE = runtime.subscribeEvents((event) => {
         notifySSEEvent({ sessionId, event, timestamp: Date.now() }).catch(() => {});

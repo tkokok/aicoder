@@ -113,11 +113,15 @@ export async function startControlPlane(opts?: { port?: number }): Promise<void>
 
           if (openCodeAlive) {
             try {
+              const agent = session.agent_id
+                ? db.prepare('SELECT runtime_config FROM agents WHERE id = ?').get(session.agent_id) as { runtime_config?: string } | undefined
+                : undefined;
               await client.attachPipeline({
                 sessionId: session.id,
                 dataPlaneSessionId: session.data_plane_session_id!,
                 workspaceDir: session.workspace_path || session.project_path!,
                 projectDir: session.project_path!,
+                runtimeConfig: agent?.runtime_config,
               });
               logger.info(`Reattached pipeline to agent`, { component: 'control-plane', operation: 'reconnect_check', session_id: session.id });
             } catch (err) {

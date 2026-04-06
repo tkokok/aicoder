@@ -4,7 +4,7 @@ import { createComponentLogger } from './logger';
 
 const log = createComponentLogger('db');
 
-const DB_PATH = './aicoder.db';
+const DB_PATH = process.env.AICODER_DB_PATH || './aicoder.db';
 
 export const db = new Database(DB_PATH);
 
