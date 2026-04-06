@@ -33,6 +33,8 @@ interface AgentBody {
   agentUrl: unknown;
   runtimeConfig?: unknown;
   runtimeLink?: unknown;
+  model?: unknown;
+  subagentModel?: unknown;
 }
 
 interface SessionResponse {
@@ -106,13 +108,15 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
 
   fastify.get('/api/agents', async (_request, reply) => {
     const rows = db.prepare(
-      'SELECT id, name, agent_url, runtime_config, runtime_link, created_at FROM agents ORDER BY created_at DESC'
+      'SELECT id, name, agent_url, runtime_config, runtime_link, main_model, subagent_model, created_at FROM agents ORDER BY created_at DESC'
     ).all() as Array<{
       id: string;
       name: string;
       agent_url: string;
       runtime_config?: string;
       runtime_link?: string;
+      main_model?: string;
+      subagent_model?: string;
       created_at: number;
     }>;
     return reply.send(
@@ -122,9 +126,32 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         agentUrl: r.agent_url,
         runtimeConfig: r.runtime_config || null,
         runtimeLink: r.runtime_link || null,
+        model: r.main_model || null,
+        subagentModel: r.subagent_model || null,
         createdAt: r.created_at,
       }))
     );
+  });
+
+  fastify.post('/api/agents/test-connection', async (request, reply) => {
+    const body = request.body as { runtimeConfig?: string };
+    const runtimeConfig = typeof body.runtimeConfig === 'string' ? body.runtimeConfig.trim() : '';
+    
+    try {
+      const { createAgentRuntime } = await import('../data/runtime/factory.js');
+      const tempDir = process.env.TEMP_DIR || '/tmp/aicoder-test';
+      const { mkdir } = await import('fs/promises');
+      await mkdir(tempDir, { recursive: true });
+      
+      const runtime = await createAgentRuntime(tempDir, runtimeConfig || undefined);
+      const models = await runtime.getModels();
+      runtime.shutdown(tempDir);
+      
+      return reply.send({ success: true, models });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return reply.status(400).send({ success: false, error: msg });
+    }
   });
 
   fastify.post<{ Body: AgentBody }>('/api/agents', async (request, reply) => {
@@ -132,6 +159,8 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
     const agentUrl = typeof request.body.agentUrl === 'string' ? request.body.agentUrl.trim() : '';
     const runtimeConfig = typeof request.body.runtimeConfig === 'string' ? request.body.runtimeConfig.trim() : '';
     const runtimeLink = typeof request.body.runtimeLink === 'string' ? request.body.runtimeLink.trim() : '';
+    const model = typeof request.body.model === 'string' ? request.body.model.trim() : '';
+    const subagentModel = typeof request.body.subagentModel === 'string' ? request.body.subagentModel.trim() : '';
 
     const errors: string[] = [];
     if (!name) errors.push('Name is required');
@@ -153,10 +182,10 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
 
     const id = generateId();
     db.prepare(
-      'INSERT INTO agents (id, name, agent_url, runtime_config, runtime_link, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(id, name, agentUrl, runtimeConfig || null, runtimeLink || null, Date.now());
+      'INSERT INTO agents (id, name, agent_url, runtime_config, runtime_link, main_model, subagent_model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, name, agentUrl, runtimeConfig || null, runtimeLink || null, model || null, subagentModel || null, Date.now());
 
-    return reply.status(201).send({ id, name, agentUrl, runtimeConfig, runtimeLink });
+    return reply.status(201).send({ id, name, agentUrl, runtimeConfig, runtimeLink, model, subagentModel });
   });
 
   fastify.put<{ Params: { id: string }; Body: AgentBody }>('/api/agents/:id', async (request, reply) => {
@@ -165,6 +194,8 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
     const agentUrl = typeof request.body.agentUrl === 'string' ? request.body.agentUrl.trim() : '';
     const runtimeConfig = typeof request.body.runtimeConfig === 'string' ? request.body.runtimeConfig.trim() : '';
     const runtimeLink = typeof request.body.runtimeLink === 'string' ? request.body.runtimeLink.trim() : '';
+    const model = typeof request.body.model === 'string' ? request.body.model.trim() : '';
+    const subagentModel = typeof request.body.subagentModel === 'string' ? request.body.subagentModel.trim() : '';
 
     const errors: string[] = [];
     if (!name) errors.push('Name is required');
@@ -185,14 +216,14 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
     }
 
     const result = db.prepare(
-      'UPDATE agents SET name = ?, agent_url = ?, runtime_config = ?, runtime_link = ? WHERE id = ?'
-    ).run(name, agentUrl, runtimeConfig || null, runtimeLink || null, id);
+      'UPDATE agents SET name = ?, agent_url = ?, runtime_config = ?, runtime_link = ?, main_model = ?, subagent_model = ? WHERE id = ?'
+    ).run(name, agentUrl, runtimeConfig || null, runtimeLink || null, model || null, subagentModel || null, id);
 
     if (result.changes === 0) {
       return reply.status(404).send({ error: 'Agent not found' });
     }
 
-    return reply.send({ id, name, agentUrl, runtimeConfig, runtimeLink });
+    return reply.send({ id, name, agentUrl, runtimeConfig, runtimeLink, model, subagentModel });
   });
 
   fastify.delete<{ Params: { id: string } }>('/api/agents/:id', async (request, reply) => {
@@ -307,8 +338,21 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         return reply.status(500).send({ error: 'Failed to create project directory' });
       }
 
-      const mainModel = input.model && typeof input.model === 'string' ? input.model : 'zhipuai-coding-plan/glm-4.7-flashx';
-      const subagentModel = input.subagentModel && typeof input.subagentModel === 'string' ? input.subagentModel : 'zhipuai-coding-plan/glm-4.7-flashx';
+      const agentId = typeof input.agentId === 'string' ? input.agentId.trim() : '';
+      if (!agentId) {
+        return reply.status(400).send({ error: 'Validation failed', errors: ['Agent is required'] });
+      }
+      const agent = db.prepare('SELECT id, name, agent_url, runtime_config, runtime_link, main_model, subagent_model FROM agents WHERE id = ?').get(agentId) as { id: string; name: string; agent_url: string; runtime_config?: string; runtime_link?: string; main_model?: string; subagent_model?: string } | undefined;
+      if (!agent) {
+        return reply.status(400).send({ error: 'Validation failed', errors: ['Selected agent not found'] });
+      }
+
+      const mainModel = input.model && typeof input.model === 'string' 
+        ? input.model 
+        : agent.main_model || 'zhipuai-coding-plan/glm-4.7-flashx';
+      const subagentModel = input.subagentModel && typeof input.subagentModel === 'string' 
+        ? input.subagentModel 
+        : agent.subagent_model || 'zhipuai-coding-plan/glm-4.7-flashx';
 
       let workspaceDir: string;
       let repoName: string | null = null;
@@ -368,15 +412,6 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         workspaceDir,
         userInput,
       });
-
-      const agentId = typeof input.agentId === 'string' ? input.agentId.trim() : '';
-      if (!agentId) {
-        return reply.status(400).send({ error: 'Validation failed', errors: ['Agent is required'] });
-      }
-      const agent = db.prepare('SELECT id, name, agent_url, runtime_config, runtime_link FROM agents WHERE id = ?').get(agentId) as { id: string; name: string; agent_url: string; runtime_config?: string; runtime_link?: string } | undefined;
-      if (!agent) {
-        return reply.status(400).send({ error: 'Validation failed', errors: ['Selected agent not found'] });
-      }
 
       try {
         transaction(() => {

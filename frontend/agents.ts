@@ -4,7 +4,15 @@ interface Agent {
   agentUrl: string;
   runtimeConfig?: string;
   runtimeLink?: string;
+  model?: string;
+  subagentModel?: string;
   createdAt: number;
+}
+
+interface ModelInfo {
+  id: string;
+  name: string;
+  providerID: string;
 }
 
 const API_ENDPOINT = '/api/agents';
@@ -27,6 +35,10 @@ class AgentsPage {
   private editingId: string | null = null;
   private pendingDeleteId: string | null = null;
 
+  // Model selection related
+  private availableModels: ModelInfo[] = [];
+  private connectionTested = false;
+
   constructor() {
     this.init();
   }
@@ -46,6 +58,7 @@ class AgentsPage {
 
     document.getElementById('add-agent-btn')?.addEventListener('click', () => this.openAddModal());
     document.getElementById('fill-opencode-btn')?.addEventListener('click', () => this.fillOpenCodeRuntime());
+    document.getElementById('test-connection-btn')?.addEventListener('click', () => this.testConnection());
     this.modalSaveBtn?.addEventListener('click', () => this.saveAgent());
     this.modalCancelBtn?.addEventListener('click', () => this.closeModal());
     this.deleteConfirmBtn?.addEventListener('click', () => this.confirmDelete());
@@ -94,7 +107,7 @@ class AgentsPage {
             <th>Name</th>
             <th>Agent URL</th>
             <th class="hide-sm">Runtime Config</th>
-            <th class="hide-sm">Runtime Link</th>
+            <th class="hide-sm">Models</th>
             <th style="text-align: right;">Actions</th>
           </tr>
         </thead>
@@ -104,7 +117,10 @@ class AgentsPage {
               <td><strong>${this.escapeHtml(a.name)}</strong></td>
               <td>${this.escapeHtml(a.agentUrl)}</td>
               <td class="hide-sm">${this.escapeHtml(a.runtimeConfig || '-')}</td>
-              <td class="hide-sm">${this.escapeHtml(a.runtimeLink || '-')}</td>
+              <td class="hide-sm">
+                ${a.model ? `<div>Main: ${this.escapeHtml(a.model)}</div>` : ''}
+                ${a.subagentModel ? `<div>Sub: ${this.escapeHtml(a.subagentModel)}</div>` : '-'}
+              </td>
               <td style="text-align: right;">
                 <div style="display: inline-flex; gap: 8px;">
                   <button type="button" class="btn btn-primary" style="padding: 5px 10px;" data-action="edit" data-id="${this.escapeHtml(a.id)}">Edit</button>
@@ -133,11 +149,17 @@ class AgentsPage {
 
   private openAddModal(): void {
     this.editingId = null;
+    this.connectionTested = false;
+    this.availableModels = [];
     if (this.modalTitle) this.modalTitle.textContent = 'Add Agent';
     this.setFormValue('agent-name', '');
     this.setFormValue('agent-url', 'http://127.0.0.1:2080');
     this.setFormValue('runtime-config', '');
     this.setFormValue('runtime-link', '');
+    this.setFormValue('main-model', '');
+    this.setFormValue('subagent-model', '');
+    this.hideModelSelects();
+    this.updateConnectionStatus('');
     this.hideModalError();
     this.openModal();
   }
@@ -147,15 +169,110 @@ class AgentsPage {
     this.setFormValue('runtime-link', 'http://127.0.0.1:4096');
   }
 
+  private async testConnection(): Promise<void> {
+    const runtimeConfig = this.getFormValue('runtime-config');
+    const statusEl = document.getElementById('connection-status');
+    const testBtn = document.getElementById('test-connection-btn') as HTMLButtonElement | null;
+
+    if (!runtimeConfig) {
+      this.updateConnectionStatus('Please enter Runtime Config first', 'error');
+      return;
+    }
+
+    if (testBtn) {
+      testBtn.disabled = true;
+      testBtn.textContent = 'Testing...';
+    }
+
+    try {
+      const response = await fetch('/api/agents/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runtimeConfig }),
+      });
+
+      const data = await response.json() as { success: boolean; models?: ModelInfo[]; error?: string };
+
+      if (response.ok && data.success && data.models) {
+        this.availableModels = data.models;
+        this.connectionTested = true;
+        this.updateConnectionStatus(`✅ Connection successful! Found ${data.models.length} models`, 'success');
+        this.showModelSelects(data.models);
+      } else {
+        this.connectionTested = false;
+        this.availableModels = [];
+        this.updateConnectionStatus(`❌ Connection failed: ${data.error || 'Unknown error'}`, 'error');
+        this.hideModelSelects();
+      }
+    } catch (err) {
+      this.connectionTested = false;
+      this.availableModels = [];
+      this.updateConnectionStatus(`❌ Connection failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+      this.hideModelSelects();
+    } finally {
+      if (testBtn) {
+        testBtn.disabled = false;
+        testBtn.textContent = '🔗 Test Connection';
+      }
+    }
+  }
+
+  private updateConnectionStatus(message: string, type?: 'success' | 'error'): void {
+    const statusEl = document.getElementById('connection-status');
+    if (!statusEl) return;
+    statusEl.textContent = message;
+    statusEl.classList.remove('connection-success', 'connection-error');
+    if (type) {
+      statusEl.classList.add(type === 'success' ? 'connection-success' : 'connection-error');
+    }
+  }
+
+  private showModelSelects(models: ModelInfo[]): void {
+    const mainGroup = document.getElementById('model-select-group');
+    const subGroup = document.getElementById('subagent-model-select-group');
+    const mainSelect = document.getElementById('main-model') as HTMLSelectElement | null;
+    const subSelect = document.getElementById('subagent-model') as HTMLSelectElement | null;
+
+    if (!mainSelect || !subSelect) return;
+
+    // Populate selects
+    const options = models.map(m => `<option value="${this.escapeHtml(m.id)}">${this.escapeHtml(m.name)} (${this.escapeHtml(m.providerID)})</option>`).join('');
+    const defaultOption = '<option value="">Select a model...</option>';
+    
+    mainSelect.innerHTML = defaultOption + options;
+    subSelect.innerHTML = defaultOption + options;
+
+    // Show groups
+    mainGroup?.classList.remove('hidden');
+    subGroup?.classList.remove('hidden');
+  }
+
+  private hideModelSelects(): void {
+    const mainGroup = document.getElementById('model-select-group');
+    const subGroup = document.getElementById('subagent-model-select-group');
+    mainGroup?.classList.add('hidden');
+    subGroup?.classList.add('hidden');
+  }
+
   private openEditModal(id: string): void {
     const agent = this.agents.find((a) => a.id === id);
     if (!agent) return;
     this.editingId = id;
+    this.connectionTested = false;
+    this.availableModels = [];
     if (this.modalTitle) this.modalTitle.textContent = 'Edit Agent';
     this.setFormValue('agent-name', agent.name);
     this.setFormValue('agent-url', agent.agentUrl);
     this.setFormValue('runtime-config', agent.runtimeConfig || '');
     this.setFormValue('runtime-link', agent.runtimeLink || '');
+    this.setFormValue('main-model', agent.model || '');
+    this.setFormValue('subagent-model', agent.subagentModel || '');
+    
+    // For edit mode, we need to test connection again to show model selects
+    // But we pre-fill the values if they exist
+    this.hideModelSelects();
+    this.updateConnectionStatus(agent.model ? `Current models: Main=${agent.model}, Sub=${agent.subagentModel || agent.model}` : 'Click "Test Connection" to select models');
+    
     this.hideModalError();
     this.openModal();
   }
@@ -171,6 +288,8 @@ class AgentsPage {
     this.modal?.classList.remove('open');
     this.modal?.setAttribute('aria-hidden', 'true');
     this.editingId = null;
+    this.connectionTested = false;
+    this.availableModels = [];
   }
 
   private closeDeleteModal(): void {
@@ -185,12 +304,12 @@ class AgentsPage {
   }
 
   private getFormValue(id: string): string {
-    const el = document.getElementById(id) as HTMLInputElement | null;
+    const el = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
     return el?.value.trim() || '';
   }
 
   private setFormValue(id: string, value: string): void {
-    const el = document.getElementById(id) as HTMLInputElement | null;
+    const el = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
     if (el) el.value = value;
   }
 
@@ -226,11 +345,20 @@ class AgentsPage {
     const name = this.getFormValue('agent-name');
     const agentUrl = this.getFormValue('agent-url');
     const runtimeLink = this.getFormValue('runtime-link');
+    const runtimeConfig = this.getFormValue('runtime-config');
+    const mainModel = this.getFormValue('main-model');
+    const subagentModel = this.getFormValue('subagent-model');
 
     if (!name) return 'Name is required';
     if (!agentUrl) return 'Agent URL is required';
     if (!/^https?:\/\//i.test(agentUrl)) return 'Agent URL must start with http:// or https://';
     if (runtimeLink && !/^https?:\/\//i.test(runtimeLink)) return 'Runtime link must start with http:// or https://';
+    
+    // Require runtime config if models are selected
+    if ((mainModel || subagentModel) && !runtimeConfig) {
+      return 'Runtime Config is required when selecting models';
+    }
+    
     return null;
   }
 
@@ -246,6 +374,8 @@ class AgentsPage {
       agentUrl: this.getFormValue('agent-url'),
       runtimeConfig: this.getFormValue('runtime-config'),
       runtimeLink: this.getFormValue('runtime-link'),
+      model: this.getFormValue('main-model'),
+      subagentModel: this.getFormValue('subagent-model'),
     };
 
     if (this.modalSaveBtn) {

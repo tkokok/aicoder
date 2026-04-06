@@ -189,3 +189,21 @@ NO_PROXY=localhost,127.0.0.1 CALLBACK_TOKEN=test-token bun dist/server/index.js
 #### Background Task Timeout
 - 使用 Shell 工具以 `run_in_background=true` 启动服务时，默认 10 秒超时后系统会自动发送 `SIGTERM`。
 - 如需长期运行，应将 `timeout` 参数设得足够大（例如 3600 秒），或在外部终端直接启动。
+
+#### GitHub Actions Release Workflow
+- 配置文件：`.github/workflows/release.yml`
+- 触发条件：推送 `v*` 标签（例如 `git tag -a v2.2.7 && git push origin v2.2.7`）
+- 构建步骤：
+  1. `bun install`
+  2. `bun run build:release`（使用 `tsconfig.release.json`，`sourceMap: false`）
+  3. 打包 `release/aicoder/` 目录为 `.tar.gz` 和 `.zip`
+- Release 包内容：
+  - `dist/` — 编译后的服务端代码
+  - `frontend/` — 前端静态资源
+  - `agents/` — Agent playbook 文件（运行时必需）
+  - `schemas/` — JSON schema 文件（运行时必需）
+  - `package.json` — 依赖清单
+  - `README.md` — 部署说明
+  - `start.sh` — 一键启动脚本（首次运行会自动从 `.env.example` 创建 `.env`）
+  - `.env.example` — 环境变量模板
+- Release 页面：GitHub 自动生成 release notes，并附加两个压缩包附件。

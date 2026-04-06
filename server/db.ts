@@ -68,6 +68,8 @@ function runMigrations() {
     // agents 中性化字段
     ['agents', 'runtime_config', 'TEXT'],
     ['agents', 'runtime_link', 'TEXT'],
+    ['agents', 'main_model', 'TEXT'],
+    ['agents', 'subagent_model', 'TEXT'],
     // 遗留字段（兼容已有数据库，仅当不存在时添加）
     ['sessions', 'opencode_session_id', 'TEXT'],
     ['sessions', 'opencode_url', 'TEXT'],

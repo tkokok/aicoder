@@ -31,7 +31,19 @@ const MODELS_ENDPOINT = '/api/models';
 const AGENTS_ENDPOINT = '/api/agents';
 const DEFAULT_MODEL = 'zhipuai-coding-plan/glm-4.7-flashx';
 
-let availableAgents: Array<{ id: string; name: string }> = [];
+interface AgentInfo {
+  id: string;
+  name: string;
+  agentUrl: string;
+  runtimeConfig?: string;
+  runtimeLink?: string;
+  model?: string;
+  subagentModel?: string;
+  createdAt: number;
+}
+
+let availableAgents: AgentInfo[] = [];
+let agentModelsCache: Map<string, { model?: string; subagentModel?: string }> = new Map();
 
 async function fetchModels(): Promise<{ models: Array<{ id: string; name: string }>; default: string }> {
   try {
@@ -336,7 +348,17 @@ async function loadAgents(): Promise<void> {
   try {
     const response = await fetch(AGENTS_ENDPOINT);
     if (!response.ok) throw new Error('Failed to load agents');
-    availableAgents = (await response.json()) as Array<{ id: string; name: string }>;
+    availableAgents = (await response.json()) as AgentInfo[];
+    
+    // Cache agent models
+    agentModelsCache.clear();
+    for (const agent of availableAgents) {
+      agentModelsCache.set(agent.id, {
+        model: agent.model,
+        subagentModel: agent.subagentModel
+      });
+    }
+    
     select.innerHTML = '';
     if (availableAgents.length === 0) {
       select.innerHTML = '<option value="">No agents available</option>';
@@ -352,8 +374,39 @@ async function loadAgents(): Promise<void> {
       opt.textContent = agent.name;
       select.appendChild(opt);
     }
+    
+    // Add change listener for agent selection
+    select.addEventListener('change', () => {
+      updateModelSelectsForAgent(select.value);
+    });
   } catch {
     select.innerHTML = '<option value="">Failed to load agents</option>';
+  }
+}
+
+function updateModelSelectsForAgent(agentId: string): void {
+  if (!agentId) return;
+  
+  const agentModels = agentModelsCache.get(agentId);
+  if (!agentModels) return;
+  
+  const mainModelSelect = document.getElementById('model') as HTMLSelectElement | null;
+  const subagentModelSelect = document.getElementById('subagentModel') as HTMLSelectElement | null;
+  
+  if (agentModels.model && mainModelSelect) {
+    // Try to select the agent's main model if it exists in the list
+    const mainOption = mainModelSelect.querySelector(`option[value="${agentModels.model}"]`) as HTMLOptionElement | null;
+    if (mainOption) {
+      mainOption.selected = true;
+    }
+  }
+  
+  if (agentModels.subagentModel && subagentModelSelect) {
+    // Try to select the agent's subagent model if it exists in the list
+    const subOption = subagentModelSelect.querySelector(`option[value="${agentModels.subagentModel}"]`) as HTMLOptionElement | null;
+    if (subOption) {
+      subOption.selected = true;
+    }
   }
 }
 

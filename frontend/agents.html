@@ -203,6 +203,19 @@
       animation: spin 1s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .form-select {
+      padding: 8px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+    }
+    .form-select:focus { border-color: var(--accent); }
+    .connection-success { color: var(--success) !important; }
+    .connection-error { color: var(--error) !important; }
   </style>
 </head>
 <body>
@@ -241,12 +254,30 @@
             <label for="runtime-config" class="form-label">Runtime Config (JSON)</label>
             <input type="text" id="runtime-config" class="form-input" placeholder='{"type":"opencode","url":"http://127.0.0.1:4096"}'>
             <span class="form-hint">Runtime-specific configuration passed to the data plane.</span>
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <button type="button" class="btn btn-secondary" id="fill-opencode-btn" style="align-self: flex-start;">+ Add OpenCode Runtime</button>
+              <button type="button" class="btn btn-secondary" id="test-connection-btn" style="align-self: flex-start;">🔗 Test Connection</button>
+            </div>
+            <div id="connection-status" class="form-hint" style="margin-top: 8px;"></div>
+          </div>
+          <div class="form-group hidden" id="model-select-group">
+            <label for="main-model" class="form-label">Main Agent Model</label>
+            <select id="main-model" class="form-input">
+              <option value="">Select a model...</option>
+            </select>
+            <span class="form-hint">Model for the main AICoder agent</span>
+          </div>
+          <div class="form-group hidden" id="subagent-model-select-group">
+            <label for="subagent-model" class="form-label">Subagent Model</label>
+            <select id="subagent-model" class="form-input">
+              <option value="">Select a model...</option>
+            </select>
+            <span class="form-hint">Model for subagents (clarify, design, dev, test, review, validate)</span>
           </div>
           <div class="form-group">
             <label for="runtime-link" class="form-label">Runtime Link</label>
             <input type="url" id="runtime-link" class="form-input" placeholder="http://127.0.0.1:4096">
             <span class="form-hint">Optional external link shown in the UI (e.g., OpenCode web UI).</span>
-            <button type="button" class="btn btn-secondary" id="fill-opencode-btn" style="margin-top: 8px; align-self: flex-start;">+ Add OpenCode Runtime</button>
           </div>
         </form>
       </div>
