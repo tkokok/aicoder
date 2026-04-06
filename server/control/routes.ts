@@ -432,6 +432,17 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
       const stageOrder = getStageOrder(pipelineMode);
       const userInput = requireString(input.requirements, 'requirements');
 
+      // Build playbook on control side
+      const { buildPipelinePlaybook } = await import('../prompts/pipeline-dispatch.js');
+      const playbook = buildPipelinePlaybook({
+        mode: pipelineMode,
+        stageOrder,
+        sessionId,
+        projectDir,
+        workspaceDir,
+        userInput,
+      });
+
       try {
         transaction(() => {
           db.prepare(
@@ -476,6 +487,7 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         startPipelineParams = {
           sessionId,
           opencodeSessionId: '', // data plane will create it
+          playbook,
           workspaceDir,
           projectDir,
           mode: pipelineMode,
@@ -490,6 +502,7 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         startPipelineParams = {
           sessionId,
           opencodeSessionId: '', // data plane will create it
+          playbook,
           workspaceDir,
           projectDir,
           mode: pipelineMode,

@@ -5,7 +5,7 @@
  * main agent to autonomously execute the entire pipeline.
  */
 
-import type { PipelineStage, PipelineMode, Phase } from '../shared/types.js';
+import type { PipelineStage, PipelineMode } from '../shared/types.js';
 
 export interface PlaybookContext {
   mode: PipelineMode;
@@ -14,13 +14,6 @@ export interface PlaybookContext {
   projectDir: string;
   workspaceDir: string;
   userInput: string;
-}
-
-export interface PhasePlaybookContext extends PlaybookContext {
-  phase: Phase;
-  iteration: number;
-  feedback?: string;
-  lastFeedbackFrom?: 'test' | 'review';
 }
 
 const STAGE_VALIDATION: Record<PipelineStage, string> = {
@@ -35,10 +28,7 @@ const STAGE_VALIDATION: Record<PipelineStage, string> = {
 
 function buildStageSubagentPrompt(
   stage: PipelineStage,
-  ctx: PlaybookContext,
-  iteration?: number,
-  feedback?: string,
-  lastFeedbackFrom?: 'test' | 'review'
+  ctx: PlaybookContext
 ): string {
   const runDir = `${ctx.projectDir}/run-${ctx.sessionId}`;
 
@@ -52,20 +42,7 @@ function buildStageSubagentPrompt(
     validate: `Perform final verification that all requirements are met. Read previous stage outputs in ${runDir}/ if needed.`,
   };
 
-  let reworkHeader = '';
-  if (stage === 'dev' && iteration && iteration > 1) {
-    const source = lastFeedbackFrom || 'previous phase';
-    const fb = feedback || 'No detailed feedback provided.';
-    reworkHeader = `
-== REWORK CONTEXT (Iteration ${iteration}) ==
-Previous phase: ${source}
-Feedback: ${fb}
-Instructions: Fix the identified issues and maintain compatibility with existing code. Do NOT skip writing or updating tests.
-==
-`.trim() + '\n\n';
-  }
-
-  return `${reworkHeader}You are the ${stage} subagent for the AICoder pipeline.
+  return `You are the ${stage} subagent for the AICoder pipeline.
 
 ## Session Context
 - Session ID: ${ctx.sessionId}
@@ -144,74 +121,18 @@ ${stageEntries.join('\n\n')}
 8. If validation fails, retry the SAME stage up to 2 more times (3 total attempts). If it still fails, output:
    "❌ Pipeline halted at stage {stage_name}: {reason}"
    Then stop. Do not proceed to later stages.
-9. After ALL stages complete successfully, output a brief summary and return ONLY:
-   \`\`\`json
-   { "finish": "stop", "status": "completed" }
-   \`\`\`
-
-=== VALIDATION CHECKLIST ===
-${validationEntries.join('\n')}
-
-=== HARD CONSTRAINTS ===
-- You MUST NOT write or modify source code yourself.
-- You MUST NOT produce design or architecture content yourself.
-- You MUST NOT write or execute tests yourself.
-- You MUST use the \`task\` tool for EVERY stage's actual work.
-- NEVER call subagents named oracle, explore, or librarian.
-`.trim();
-}
-
-export function buildPhasePlaybook(ctx: PhasePlaybookContext): string {
-  const runDir = `${ctx.projectDir}/run-${ctx.sessionId}`;
-  const stage = ctx.phase as PipelineStage;
-  const prompt = buildStageSubagentPrompt(stage, ctx, ctx.iteration, ctx.feedback, ctx.lastFeedbackFrom);
-  const indented = prompt.split('\n').map((line) => `  ${line}`).join('\n');
-
-  const validationEntries = Object.entries(STAGE_VALIDATION).map(([s, rule]) => {
-    return `- ${s}: ${rule}`;
-  });
-
-  return `You are AICoder, the pipeline executor. You have been given a SINGLE phase playbook. Your job is to execute ONLY the current phase.
-
-=== PIPELINE CONFIGURATION ===
-- mode: ${ctx.mode}
-- current_stage: ${ctx.phase}
-- iteration: ${ctx.iteration}
-- run_dir: ${runDir}
-- workspace_dir: ${ctx.workspaceDir}/
-
-=== CURRENT STAGE PROMPT ===
-## ${stage}
-prompt: |\n${indented}
-
-=== EXECUTION RULES (CRITICAL) ===
-1. Execute ONLY the current_stage above.
-2. Before calling \`task\`, output a visible text message:
-   "🚀 Starting phase: ${ctx.phase} (iteration ${ctx.iteration})"
-3. Call the \`task\` tool with ALL of these fields:
-   - description: a short 3-5 word summary of the stage
-   - subagent_type: the exact stage name "${ctx.phase}"
-   - prompt: the prompt provided above (forward it verbatim)
-   - run_in_background: false (REQUIRED)
-   - load_skills: [] (REQUIRED, pass empty array if no skills needed)
-   - task_id: if retrying a failed attempt, reuse the previous task_id
-4. WAIT for the \`task\` tool to return.
-5. Validate the result using the checklist below.
-6. Save the validated result as JSON to: ${runDir}/${ctx.phase}.json
-   The JSON MUST contain:
-   - status: "completed" or "failed"
-   - subagent_session_id: the task_id from the task tool output
-   - output: the subagent's actual result data
-   - error: error message if status is "failed"
-7. After saving, return ONLY one JSON object with finish="stop":
-   - If the stage passed:
-     \`\`\`json
-     { "finish": "stop", "status": "completed" }
-     \`\`\`
-   - If the stage failed after max retries:
-     \`\`\`json
-     { "finish": "stop", "status": "failed", "failed_stage": "${ctx.phase}", "reason": "<error message>" }
-     \`\`\`
+9. **DEV / TEST / REVIEW LOOP RULES** (applies when stage_order contains dev, test, review):
+   a. After \`dev\` completes, you MUST proceed to \`test\` if it exists in stage_order. Never skip \`test\` to go directly to \`review\`.
+   b. After \`test\` completes, read ${runDir}/test.json. If \`failed_tests\` is non-empty OR \`gaps\` contains items with severity "critical" or "high", you MUST go back to \`dev\` and fix the issues.
+   c. After \`review\` completes, read ${runDir}/review.json. If \`approved\` is NOT true, you MUST go back to \`dev\` and fix the issues.
+   d. When dispatching a rework \`dev\` task (2nd iteration or later), prepend the dev prompt with a REWORK header:
+      "== REWORK (Iteration {N}) ==\nReason: {test|review} reported issues.\nSummary: {brief summary of failed_tests, gaps, blockers, or issues}.\nFix the identified issues and maintain compatibility with existing code. =="
+   e. After ANY rework \`dev\` completes, you MUST proceed to \`test\` again. Do NOT skip \`test\`.
+   f. The dev→test→review loop may execute up to 3 iterations total. If you are about to start a 4th iteration of \`dev\`, output "❌ Pipeline halted: max dev/test/review iterations exceeded." and stop.
+10. After ALL stages complete successfully, output a brief summary and return ONLY:
+    \`\`\`json
+    { "finish": "stop", "status": "completed" }
+    \`\`\`
 
 === VALIDATION CHECKLIST ===
 ${validationEntries.join('\n')}
