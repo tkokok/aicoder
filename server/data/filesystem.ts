@@ -67,19 +67,6 @@ export class LocalFileSystem {
     let pollingTimer: ReturnType<typeof setInterval> | null = null;
     const knownFiles = new Set<string>();
 
-    // Helper to scan existing files for polling baseline
-    try {
-      const { readdir } = await import('fs/promises');
-      const entries = await readdir(runDir);
-      for (const name of entries) {
-        if (name.endsWith('.json') && name !== 'checkpoint.json') {
-          knownFiles.add(name);
-        }
-      }
-    } catch {
-      // ignore
-    }
-
     const debounceMs = 5000;
     const lastHandledTimes = new Map<string, number>();
 
@@ -99,6 +86,20 @@ export class LocalFileSystem {
         // ignore parse/read errors
       }
     };
+
+    // Scan existing files on startup (important for resume/reconnect)
+    try {
+      const { readdir } = await import('fs/promises');
+      const entries = await readdir(runDir);
+      for (const name of entries) {
+        if (name.endsWith('.json') && name !== 'checkpoint.json') {
+          knownFiles.add(name);
+          await handleFile(name);
+        }
+      }
+    } catch {
+      // ignore
+    }
 
     try {
       watcher = watch(runDir, (eventType, filename) => {

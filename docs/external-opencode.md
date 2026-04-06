@@ -1,11 +1,8 @@
 # External OpenCode Server Support
 
-AICoder supports connecting to OpenCode in two ways depending on the deployment mode:
+AICoder connects to OpenCode through the data plane. Users manage one or more **Agents** via `agents.html`. Each Agent record stores the OpenCode URLs, and the data plane connects directly to the OpenCode server when running a pipeline.
 
-1. **Remote mode (default)**: Users manage one or more **Agents** via `agents.html`. Each Agent record stores the OpenCode URLs, and the data plane connects directly to the OpenCode server when running a pipeline.
-2. **Local mode (`USE_DATA_PLANE=false`)**: Users provide the OpenCode endpoint directly in the project creation form (Advanced Options).
-
-Under the hood, both modes ultimately talk to either:
+Under the hood, the data plane talks to either:
 - A **local temporary** `opencode serve` process (auto-spawned on a random port)
 - An **external** OpenCode server provided by the user (e.g. `http://127.0.0.1:4096`)
 
@@ -31,29 +28,6 @@ In Remote mode, the **Control Plane** (`:8080`) does not talk to OpenCode direct
 | `opencode_public_url` | Where the **frontend** links users to. May be a public domain or reverse proxy. | `http://127.0.0.1:4096` |
 
 This split allows the data plane to run inside a container or VPN while the frontend still generates clickable links that work from the user's browser.
-
----
-
-## Local Mode (`USE_DATA_PLANE=false`)
-
-In Local mode, the monolithic server handles everything directly. The project creation form exposes **Advanced Options** where the user can provide:
-
-- **OpenCode URL** — external server endpoint
-- **Custom Header** — extra HTTP headers in `Key: Value` format
-- **Username / Password** — Basic Auth credentials
-
-### Example local setup
-
-```bash
-# Terminal 1: start OpenCode
-opencode serve --port 4096 --hostname 127.0.0.1
-
-# Terminal 2: start AICoder in local mode
-USE_DATA_PLANE=false bun dist/server/index.js
-```
-
-Then in AICoder's create form, set:
-- **OpenCode URL**: `http://127.0.0.1:4096`
 
 ---
 
@@ -90,7 +64,7 @@ export interface ExecutePipelineOptions {
 }
 ```
 
-The caller (data plane in Remote mode, or `server/routes.ts` in Local mode) creates the correct client **once** and passes it into the pipeline:
+The caller (data plane) creates the correct client **once** and passes it into the pipeline:
 
 ```typescript
 // External

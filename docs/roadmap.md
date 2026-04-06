@@ -1,15 +1,14 @@
 # AICoder Roadmap
 
-> Positioning: **OpenCode-native + Strict stage gating + Git worktree safety + Local/Remote dual-mode architecture**
+> Positioning: **OpenCode-native + Strict stage gating + Git worktree safety + Remote-mode architecture**
 
 ## Completed Milestones
 
 ### Control / Data Plane Separation
 **Status**: Completed
-- **Remote mode (default)**: Control plane (`:8080`) + Data plane (`:2080`) separation.
+- **Remote mode**: Control plane (`:8080`) + Data plane (`:2080`) separation.
   - Control plane manages sessions, agents, UI, and SQLite state.
-  - Data plane connects to OpenCode, runs pipelines, polls messages, and reports progress back via authenticated HTTP callbacks.
-- **Local mode (`USE_DATA_PLANE=false`)**: Legacy monolithic server for direct OpenCode configuration.
+  - Data plane connects to OpenCode (either a temporary local process or an external server), runs pipelines, polls messages, and reports progress back via authenticated HTTP callbacks.
 - **Agent management**: Dark-themed `agents.html` page to create/edit/delete agents with health-check validation.
 
 ---
@@ -117,4 +116,4 @@ A single feature may span multiple repositories (e.g. API + frontend + docs).
 2. **Strict Stage Gating**: The pipeline is the product. Every feature should reinforce predictability and quality control.
 3. **Git Worktree Safety**: Never mutate the user's original repo directly. The worktree model is a core trust feature.
 4. **External Server Friendly**: Keep supporting external OpenCode endpoints for power users who want shared model pools or centralized infra.
-5. **Local / Remote Flexibility**: Support both single-process local development and distributed control/data plane deployments without code divergence.
+5. **Remote-First Simplicity**: The control/data plane architecture is the only supported mode, keeping operational complexity low while still allowing distributed deployments.

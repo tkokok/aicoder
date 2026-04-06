@@ -4,11 +4,10 @@
 
 AICoder is a pipeline orchestrator built on top of OpenCode.
 
-The current architecture is **Plan B (One-Shot Authorization)** with a **Local / Remote mode** split:
+The current architecture is **Plan B (One-Shot Authorization)** running in **Remote mode**:
 
-- **Remote mode (default)**: Control plane (`:8080`) + Data plane (`:2080`).
+- **Remote mode**: Control plane (`:8080`) + Data plane (`:2080`).
   The control plane manages sessions, agents, and the UI. The data plane runs pipelines by talking directly to OpenCode and reports progress back via authenticated HTTP callbacks.
-- **Local mode (`USE_DATA_PLANE=false`)**: Legacy single-process server that handles everything directly.
 
 ### Core Flow (Remote Mode)
 
@@ -95,22 +94,19 @@ After dispatching the playbook, the data plane **does not send further prompts**
 - Command: `git worktree add "{projectDir}/workspace" -b aicoder-{branch}`
 - This keeps the original repository untouched
 
-### 7. Local vs Remote Mode
+### 7. Remote Mode
 
-| | Remote (default) | Local (`USE_DATA_PLANE=false`) |
-|---|---|---|
-| Architecture | Control Plane (`:8080`) + Data Plane (`:2080`) | Single monolithic server (`:8080`) |
-| Agent Config | Managed via `agents.html` UI, stored in `agents` table | Hardcoded external OpenCode URL in advanced options |
-| OpenCode Connection | Data plane connects directly to `opencode_local_url` | Server connects directly to configured OpenCode URL |
-| Frontend Create Form | Shows **Agent selector** | Shows **Advanced Options** (URL / headers / auth) |
-| Progress Callbacks | HTTP callbacks from data plane → control plane | In-memory broadcast |
+- **Architecture**: Control Plane (`:8080`) + Data Plane (`:2080`)
+- **Agent Config**: Managed via `agents.html` UI, stored in `agents` table
+- **OpenCode Connection**: Data plane connects directly to `opencode_local_url`
+- **Frontend Create Form**: Shows **Agent selector**
+- **Progress Callbacks**: HTTP callbacks from data plane → control plane
+- **`DEFAULT_AGENT_URL`** auto-points to the bundled data plane (`http://localhost:2080`)
 
-Remote mode environment example:
+Startup example:
 ```bash
-MODE=local CALLBACK_TOKEN=test-token bun dist/server/index.js
+NO_PROXY=localhost,127.0.0.1 CALLBACK_TOKEN=test-token bun dist/server/index.js
 ```
-
-In Remote mode, `DEFAULT_AGENT_URL` auto-points to the bundled data plane (`http://localhost:2080`). In Local mode, it uses whatever OpenCode URL the user configures.
 
 ### 8. Agent Management (Remote Mode)
 
@@ -146,7 +142,7 @@ Default: `low`. This is configurable via the "Reasoning Level" dropdown on the c
 - **Frontend pages**:
   - `index.html` — Session list (compact table layout)
   - `agents.html` — Agent management (Remote mode only)
-  - `create.html` — Project creation form (adapts Local/Remote)
+  - `create.html` — Project creation form
   - `status.html` — Real-time pipeline status (table + 2-column grid)
   - `report.html` — Session report with markdown rendering
 - **Design system**: Dark theme (`#0b0c0f` background), compact table-based layouts, desktop-first
@@ -169,3 +165,27 @@ Default: `low`. This is configurable via the "Reasoning Level" dropdown on the c
 7. After completion, the user is redirected to `report.html`
 
 See `docs/` for more detailed architecture documentation.
+
+### 12. Service Operations
+
+#### Build & Deploy
+- 修改任何 `server/**/*.ts` 或 `frontend/**/*.ts` 后必须执行 `npm run build` 才会生成到 `dist/`，Bun 运行的是 `dist/` 下的编译产物。
+
+#### Startup Command
+```bash
+NO_PROXY=localhost,127.0.0.1 CALLBACK_TOKEN=test-token bun dist/server/index.js
+```
+
+#### Critical: `NO_PROXY` Environment Variable
+- **Bun 1.3.10 只在进程启动时读取代理配置**，运行时修改 `process.env.NO_PROXY` 无效。
+- 如果 shell 环境设置了 `http_proxy`，且启动时没带 `NO_PROXY=localhost,127.0.0.1`，所有 `localhost:8080` 的 data-plane → control-plane callback 会被代理拦截，导致控制面永远收不到回调（表现为 503 或请求消失）。
+- 必须在启动命令里显式传入 `NO_PROXY=localhost,127.0.0.1`。
+
+#### Automatic Reconnect on Restart
+- 控制面启动 3 秒后，会自动查询 1 小时内 `status = 'running'` 的 sessions。
+- 如果数据面确认 pipeline 仍在运行（OpenCode session 还活着），会调用 `/pipeline/attach` 重新挂载监控，**不会重新 dispatch playbook**。
+- 如果 OpenCode session 已死，则将该 session 标记为 `failed`。
+
+#### Background Task Timeout
+- 使用 Shell 工具以 `run_in_background=true` 启动服务时，默认 10 秒超时后系统会自动发送 `SIGTERM`。
+- 如需长期运行，应将 `timeout` 参数设得足够大（例如 3600 秒），或在外部终端直接启动。

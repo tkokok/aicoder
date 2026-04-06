@@ -518,6 +518,7 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
     try {
       const rawMessages = await options.runtime.getMessages(dataPlaneSessionId);
       let hasNew = false;
+      let shouldFinish = false;
       for (const msg of rawMessages) {
         const textParts = msg.parts
           ?.filter((p) => (p.type === 'text' || p.type === 'reasoning') && p.text)
@@ -531,6 +532,10 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
             if (removed) seenMessageTexts.delete(removed);
           }
           hasNew = true;
+        }
+        // Safety net: detect explicit finish signal from agent
+        if (joined.includes('"finish"') && joined.includes('"stop"')) {
+          shouldFinish = true;
         }
       }
       const messagesJson = JSON.stringify(accumulatedMessages);
@@ -546,6 +551,10 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
           messagesJson,
           timestamp: Date.now(),
         });
+      }
+      if (shouldFinish && !completed) {
+        sessionLogger.info('Detected finish signal in messages, completing pipeline', { operation: 'finish_signal' });
+        await finishPipeline('completed');
       }
     } catch {
       // ignore message polling errors
