@@ -21,10 +21,7 @@ jobs:
         run: bun install
 
       - name: Build
-        run: bun run build
-
-      - name: Strip source maps from dist
-        run: find dist -type f \( -name '*.map' -o -name '*.d.ts.map' \) -delete
+        run: bun run build:release
 
       - name: Package release assets
         run: |
