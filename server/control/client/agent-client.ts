@@ -6,11 +6,33 @@ import type {
   ModelInfo,
 } from '../../shared/types.js';
 
+export function getAgentUrl(): string {
+  return process.env.DEFAULT_AGENT_URL || 'http://localhost:2080';
+}
+
 export class AgentClient {
   private baseUrl: string;
 
   constructor(agentUrl: string) {
     this.baseUrl = agentUrl.replace(/\/$/, '');
+  }
+
+  async attachPipeline(params: {
+    sessionId: string;
+    dataPlaneSessionId: string;
+    workspaceDir: string;
+    projectDir: string;
+  }): Promise<{ attached: boolean; error?: string }> {
+    const response = await fetch(`${this.baseUrl}/pipeline/${encodeURIComponent(params.sessionId)}/attach`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => 'unknown');
+      throw new Error(`Agent attachPipeline error: ${response.status} ${text}`);
+    }
+    return (await response.json()) as { attached: boolean; error?: string };
   }
 
   async startPipeline(params: StartPipelineRequest): Promise<StartPipelineResponse> {

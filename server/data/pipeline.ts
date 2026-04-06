@@ -57,6 +57,7 @@ export interface ExecutePipelineOptions {
   model?: string;
   mode?: PipelineMode;
   reasoningEffort?: string;
+  resume?: boolean;
 }
 
 interface ActivePipeline {
@@ -570,20 +571,24 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
     timestamp: Date.now(),
   });
 
-  // Send playbook
-  try {
-    const tSendStart = Date.now();
-    await sendPromptWithRetry(
-      options.runtime,
-      dataPlaneSessionId,
-      [{ type: 'text', text: playbook }],
-      finalConfig
-    );
-    sessionLogger.info(`Playbook dispatched in ${Date.now() - tSendStart}ms`, { operation: 'dispatch' });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    sessionLogger.error('Failed to dispatch playbook', error, { operation: 'dispatch_fail' });
-    finishPipeline('failed', errorMessage).catch(() => {});
+  // Send playbook (skip on resume)
+  if (!options.resume) {
+    try {
+      const tSendStart = Date.now();
+      await sendPromptWithRetry(
+        options.runtime,
+        dataPlaneSessionId,
+        [{ type: 'text', text: playbook }],
+        finalConfig
+      );
+      sessionLogger.info(`Playbook dispatched in ${Date.now() - tSendStart}ms`, { operation: 'dispatch' });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      sessionLogger.error('Failed to dispatch playbook', error, { operation: 'dispatch_fail' });
+      finishPipeline('failed', errorMessage).catch(() => {});
+    }
+  } else {
+    sessionLogger.info(`Pipeline resumed (skipping playbook dispatch)`, { operation: 'resume' });
   }
 
   activePipelines.set(sessionId, { stop: cleanup, sessionId });

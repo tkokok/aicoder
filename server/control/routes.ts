@@ -6,7 +6,7 @@ import { join, basename } from 'path';
 import { homedir } from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { AgentClient } from './client/agent-client.js';
+import { AgentClient, getAgentUrl } from './client/agent-client.js';
 import { createSessionLogger, logger } from '../logger.js';
 import type { PipelineMode } from '../shared/types.js';
 import { getStageOrder } from '../shared/constants.js';
@@ -39,10 +39,6 @@ interface SessionResponse {
   id: string;
   status: string;
   runtime_url?: string;
-}
-
-function getAgentUrl(): string {
-  return process.env.DEFAULT_AGENT_URL || 'http://localhost:2080';
 }
 
 function requireString(value: unknown, fieldName: string): string {

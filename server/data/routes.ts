@@ -99,6 +99,60 @@ export async function registerDataRoutes(fastify: FastifyInstance): Promise<void
     return reply.send({ ok: true });
   });
 
+  fastify.post('/pipeline/:id/attach', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as {
+      dataPlaneSessionId: string;
+      workspaceDir: string;
+      projectDir: string;
+    };
+    const { dataPlaneSessionId, workspaceDir, projectDir } = body;
+    const sessionId = id;
+
+    if (getSession(sessionId)) {
+      return reply.send({ attached: true, alreadyRunning: true });
+    }
+
+    try {
+      const runtime = await createAgentRuntime(projectDir);
+
+      const unsubscribeSSE = runtime.subscribeEvents((event) => {
+        notifySSEEvent({ sessionId, event, timestamp: Date.now() }).catch(() => {});
+      });
+
+      const { stop } = await executePipeline({
+        sessionId,
+        dataPlaneSessionId,
+        workspaceDir,
+        projectDir,
+        runtime,
+        resume: true,
+      });
+
+      const cleanup = () => {
+        stop();
+        unsubscribeSSE();
+        runtime.shutdown(projectDir);
+        unregisterSession(sessionId);
+      };
+
+      registerSession({
+        sessionId,
+        dataPlaneSessionId,
+        runtime,
+        projectDir,
+        stopPipeline: cleanup,
+      });
+
+      log.info(`Pipeline attached`, { session_id: sessionId, data_plane_session_id: dataPlaneSessionId });
+      return reply.send({ attached: true, dataPlaneSessionId });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      log.error('Failed to attach pipeline', error, { session_id: sessionId });
+      return reply.status(502).send({ attached: false, error: msg });
+    }
+  });
+
   fastify.get('/pipeline/:id/status', async (request, reply) => {
     const { id } = request.params as { id: string };
     const session = getSession(id);
