@@ -85,6 +85,8 @@ export interface PipelineCheckpoint {
   feedback?: string;
   /** Which phase produced the feedback ('test' or 'review'). */
   last_feedback_from?: 'test' | 'review';
+  /** Track execution count for each stage (supports dev/test/review loops). */
+  stage_executions?: Record<PipelineStage, number>;
 }
 
 // ============================================================================

@@ -32,6 +32,48 @@ Your implementation MUST:
 - Follow ALL implementation_notes
 - Test against ALL success_criteria from clarify.json
 
+## REWORK Mode
+
+If your prompt begins with "== REWORK (Iteration N) ==", you are in **rework mode**:
+
+### How to Recognize REWORK Mode
+
+The prompt will include a REWORK header like:
+```
+== REWORK (Iteration 2) ==
+Reason: test reported issues.
+Summary: Failed tests in src/auth.ts: should reject duplicate email (Expected 409, got 500). Gap: database error handling not tested.
+Fix the identified issues and maintain compatibility with existing code.
+```
+
+### REWORK Mode Instructions
+
+1. **Read the Feedback**: Parse the REWORK header to understand:
+   - Which iteration this is (1st, 2nd, 3rd)
+   - Why you're back (test failures or review rejection)
+   - What specific issues need fixing
+
+2. **Read Previous Outputs**:
+   - Read `test.json` if test failures are reported
+   - Read `review.json` if review rejected the code
+   - Understand what failed and why
+
+3. **Fix Issues, Don't Rewrite**:
+   - Preserve all working code
+   - Only modify code related to the reported issues
+   - Don't add new features not in the original design
+
+4. **Re-run Tests**: After fixing, run tests locally to verify fixes work
+
+5. **Document Changes**: In `deviation_notes`, explain what was fixed
+
+### REWORK Mode Reminders
+
+- This is iteration {N} of dev - make it count
+- You have max 3 iterations total for dev→test→review loop
+- If you can't fix after 3 tries, the pipeline will halt
+- Focus on the specific issues, don't over-fix
+
 ## Implementation Principles
 
 1. **Follow Design Exactly**: Do not deviate from the design without documenting why

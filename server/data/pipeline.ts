@@ -107,6 +107,15 @@ function createCheckpoint(sessionId: string, mode: PipelineMode, stageOrder: Pip
     review: { status: 'pending', attempts: 0 },
     validate: { status: 'pending', attempts: 0 },
   };
+  const stageExecutions: Record<PipelineStage, number> = {
+    clarify: 0,
+    design: 0,
+    task: 0,
+    dev: 0,
+    test: 0,
+    review: 0,
+    validate: 0,
+  };
   return {
     version: 1,
     session_id: sessionId,
@@ -115,6 +124,8 @@ function createCheckpoint(sessionId: string, mode: PipelineMode, stageOrder: Pip
     current_stage_index: 0,
     overall_status: 'running',
     stages,
+    stage_executions: stageExecutions,
+    iteration: 1,
   };
 }
 
@@ -407,6 +418,11 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
     if (stageError) {
       checkpoint.stages[stage].error = stageError;
     }
+    // Track stage execution count for dev/test/review loops
+    if (!checkpoint.stage_executions) {
+      checkpoint.stage_executions = {} as Record<PipelineStage, number>;
+    }
+    checkpoint.stage_executions[stage] = (checkpoint.stage_executions[stage] || 0) + 1;
 
     status = updateStageStatus(status, stage, stageStatus, checkpoint.stages[stage].attempts, undefined, stageError);
     await saveCheckpoint(checkpoint, finalConfig.projectDir);
@@ -423,16 +439,22 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
       timestamp: Date.now(),
     });
 
-    // Determine current stage index (never regress)
+    // Determine current stage
+    // For dev/test/review loops: only advance index if this stage hasn't been seen before
+    // AICoder controls the loop logic; data plane just tracks progress
+    const executionCount = checkpoint.stage_executions?.[stage] || 0;
     let currentStageIndex = checkpoint.current_stage_index;
-    for (let i = currentStageIndex; i < stageOrder.length; i++) {
-      const s = stageOrder[i];
-      if (checkpoint.stages[s].status === 'completed') {
-        currentStageIndex = i + 1;
-      } else {
-        break;
+
+    if (executionCount === 1) {
+      // First time seeing this stage - advance index
+      const stageIndex = stageOrder.indexOf(stage);
+      if (stageIndex >= currentStageIndex) {
+        currentStageIndex = stageIndex + 1;
       }
     }
+    // If executionCount > 1, this is a rework iteration, don't advance index
+    // AICoder will handle the loop logic
+
     checkpoint.current_stage_index = Math.min(currentStageIndex, stageOrder.length);
     await saveCheckpoint(checkpoint, finalConfig.projectDir);
 
