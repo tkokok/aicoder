@@ -5,7 +5,7 @@
  * Each project gets its own OpenCode process on a random port (20000-30000).
  */
 
-import { createComponentLogger } from './logger';
+import { createComponentLogger } from '../logger';
 
 // ============================================================================
 // Types

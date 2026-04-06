@@ -1,6 +1,17 @@
 # AICoder Roadmap
 
-> Positioning: **OpenCode-native + Strict stage gating + Git worktree safety + External OpenCode support**
+> Positioning: **OpenCode-native + Strict stage gating + Git worktree safety + Remote-mode architecture**
+
+## Completed Milestones
+
+### Control / Data Plane Separation
+**Status**: Completed
+- **Remote mode**: Control plane (`:8080`) + Data plane (`:2080`) separation.
+  - Control plane manages sessions, agents, UI, and SQLite state.
+  - Data plane connects to OpenCode (either a temporary local process or an external server), runs pipelines, polls messages, and reports progress back via authenticated HTTP callbacks.
+- **Agent management**: Dark-themed `agents.html` page to create/edit/delete agents with health-check validation.
+
+---
 
 ## Phase 1: Pipeline Hardening (Current → Next 2 weeks)
 
@@ -11,11 +22,11 @@
 - **Prompt economy**: Parent-agent context is kept minimal by referencing previous stage outputs via file paths instead of embedding their full contents inline.
 
 ### 1.2 Stage Recovery & Resume
-**Status**: In Progress
+**Status**: Partially Complete
 **Motivation**: Pipelines can fail mid-way due to LLM API errors (503, rate limits) or sub-agent hallucinations.
 - Save a `checkpoint.json` after every successful stage.
 - On restart, read checkpoints and resume from the last completed stage.
-- UI: "Resume" button on failed sessions.
+- UI: "Resume" button on failed sessions *(pending)*.
 
 ### 1.3 Cost & Token Tracking
 **Status**: Pending
@@ -35,7 +46,7 @@ Not all projects need the full 7-stage pipeline.
 - Future templates: Backend API, Frontend Only, Spec-Driven
 
 Implementation:
-- Stage orders are defined in `server/pipeline.ts` (`STAGE_ORDERS`).
+- Stage orders are defined in `server/shared/constants.ts` (`getStageOrder`).
 - Frontend template selector already supports the three core modes.
 - AICoder receives the stage list dynamically via the backend dispatch prompt.
 
@@ -105,3 +116,4 @@ A single feature may span multiple repositories (e.g. API + frontend + docs).
 2. **Strict Stage Gating**: The pipeline is the product. Every feature should reinforce predictability and quality control.
 3. **Git Worktree Safety**: Never mutate the user's original repo directly. The worktree model is a core trust feature.
 4. **External Server Friendly**: Keep supporting external OpenCode endpoints for power users who want shared model pools or centralized infra.
+5. **Remote-First Simplicity**: The control/data plane architecture is the only supported mode, keeping operational complexity low while still allowing distributed deployments.

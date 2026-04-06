@@ -17,8 +17,8 @@ class StatusPage {
   private reconnectAttempts = 0;
   private sessionId: string | null = null;
   private pollTimer: number | null = null;
-  private opencodeUrl: string | null = null;
-  private opencodeSessionId: string | null = null;
+  private runtimeUrl: string | null = null;
+  private dataPlaneSessionId: string | null = null;
   private projectPath: string | null = null;
   private lastError: string | null = null;
 
@@ -45,6 +45,7 @@ class StatusPage {
         this.renderActivity();
       });
     }
+
   }
 
   private getSessionIdFromUrl(): string | null {
@@ -78,13 +79,13 @@ class StatusPage {
       if (!response.ok) return;
       const data = (await response.json()) as Record<string, unknown>;
 
-      if (typeof data.opencode_url === 'string' && data.opencode_url) {
-        this.opencodeUrl = data.opencode_url;
-        this.updateOpenCodeUrl(data.opencode_url);
+      if (typeof data.runtime_url === 'string' && data.runtime_url) {
+        this.runtimeUrl = data.runtime_url;
+        this.updateRuntimeUrl(data.runtime_url);
       }
 
-      if (typeof data.opencode_session_id === 'string' && data.opencode_session_id) {
-        this.opencodeSessionId = data.opencode_session_id;
+      if (typeof data.data_plane_session_id === 'string' && data.data_plane_session_id) {
+        this.dataPlaneSessionId = data.data_plane_session_id;
       }
 
       if (typeof data.project_path === 'string' && data.project_path) {
@@ -398,7 +399,7 @@ class StatusPage {
     return Math.round((completed / stageNames.length) * 100);
   }
 
-  private updateOpenCodeUrl(url: string): void {
+  private updateRuntimeUrl(url: string): void {
     const el = document.getElementById('opencode-url') as HTMLAnchorElement | null;
     if (el) {
       el.href = url;
@@ -441,9 +442,9 @@ class StatusPage {
 
   private updateMainAgentUrl(): void {
     const el = document.getElementById('opencode-session-url') as HTMLAnchorElement | null;
-    if (!el || !this.opencodeUrl || !this.opencodeSessionId || !this.projectPath) return;
+    if (!el || !this.runtimeUrl || !this.dataPlaneSessionId || !this.projectPath) return;
     const base64Path = btoa(this.projectPath);
-    const url = `${this.opencodeUrl.replace(/\/$/, '')}/${base64Path}/session/${this.opencodeSessionId}`;
+    const url = `${this.runtimeUrl.replace(/\/$/, '')}/${base64Path}/session/${this.dataPlaneSessionId}`;
     el.href = url;
     el.textContent = url;
   }

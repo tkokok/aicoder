@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AICoder - Projects</title>
+  <title>AICoder - Agents</title>
   <style>
     :root {
       --bg: #0b0c0f;
@@ -52,6 +52,7 @@
     .btn {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
       padding: 7px 12px;
       border-radius: 8px;
@@ -71,7 +72,7 @@
 
     .toolbar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
 
-    .session-table {
+    .agent-table {
       width: 100%;
       border-collapse: collapse;
       background: var(--surface);
@@ -80,38 +81,21 @@
       overflow: hidden;
       font-size: 13px;
     }
-    .session-table th, .session-table td {
+    .agent-table th, .agent-table td {
       padding: 10px 12px;
       text-align: left;
       border-bottom: 1px solid var(--border);
       vertical-align: middle;
     }
-    .session-table th {
+    .agent-table th {
       color: var(--text-muted);
       font-weight: 600;
       background: rgba(255,255,255,0.02);
       white-space: nowrap;
     }
-    .session-table tbody tr:hover { background: rgba(255,255,255,0.02); }
-    .session-table tbody tr:last-child td { border-bottom: none; }
-    .session-table td { color: var(--text-secondary); }
-    .session-table td > a { color: var(--text); font-weight: 500; }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 600;
-      border: 1px solid var(--border);
-      background: var(--surface-2);
-      color: var(--text-secondary);
-    }
-    .badge.running { color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.12); }
-    .badge.completed { color: var(--success); border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.12); }
-    .badge.failed { color: var(--error); border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.12); }
-    .badge.pending { color: var(--warning); border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.12); }
+    .agent-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+    .agent-table tbody tr:last-child td { border-bottom: none; }
+    .agent-table td { color: var(--text-secondary); }
 
     .empty-state {
       text-align: center;
@@ -122,8 +106,8 @@
       border-radius: 10px;
     }
 
-    @media (max-width: 720px) {
-      .session-table .hide-sm { display: none; }
+    @media (max-width: 900px) {
+      .agent-table .hide-sm { display: none; }
     }
 
     /* Modal */
@@ -145,7 +129,7 @@
       border: 1px solid var(--border);
       border-radius: 12px;
       width: 100%;
-      max-width: 420px;
+      max-width: 520px;
       margin: 16px;
       overflow: hidden;
     }
@@ -168,8 +152,19 @@
       border-top: 1px solid var(--border);
       background: rgba(255,255,255,0.02);
     }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    .form-group { display: flex; flex-direction: column; }
+    .form-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
     .form-input {
-      width: 100%;
       padding: 8px 10px;
       background: var(--bg);
       border: 1px solid var(--border);
@@ -179,58 +174,105 @@
       outline: none;
     }
     .form-input:focus { border-color: var(--accent); }
-    .form-label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
-    .form-error { display: block; color: var(--error); font-size: 12px; margin-top: 6px; }
-    .hidden { display: none !important; }
-    .mono-box {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: 12px;
-      padding: 10px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text-secondary);
-      margin-bottom: 10px;
+    .form-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 5px;
     }
+    .form-error {
+      font-size: 11px;
+      color: var(--error);
+      margin-top: 5px;
+    }
+    .hidden { display: none !important; }
+    .alert-error {
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(248,113,113,0.10);
+      border: 1px solid rgba(248,113,113,0.35);
+      color: #fecaca;
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <div class="container">
     <header class="topbar">
       <h1>AICoder</h1>
-      <div style="display: flex; gap: 10px; align-items: center;">
-        <a href="agents.html" class="btn btn-secondary hidden" id="nav-agents">Agents</a>
-        <a href="create.html" class="btn btn-primary">+ New Project</a>
-      </div>
+      <a href="index.html" class="btn btn-secondary">← Back to Home</a>
     </header>
 
-    <div id="session-list-container" class="empty-state">Loading sessions...</div>
+    <div class="toolbar">
+      <button type="button" id="add-agent-btn" class="btn btn-primary">+ Add Agent</button>
+    </div>
+
+    <div id="agent-list-container" class="empty-state">Loading agents...</div>
   </div>
 
-  <!-- Delete Confirmation Modal -->
-  <div class="modal-backdrop" id="delete-modal" aria-hidden="true">
+  <!-- Agent Modal -->
+  <div class="modal-backdrop" id="agent-modal" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modal-header">
-        <h2 class="modal-title">Delete Project</h2>
+        <h2 class="modal-title" id="modal-title">Add Agent</h2>
       </div>
       <div class="modal-body">
-        <p style="margin: 0 0 10px; color: var(--text-secondary);">
-          This action cannot be undone. To confirm deletion, type the project name below:
-        </p>
-        <div class="mono-box" id="delete-target-name"></div>
-        <div style="margin-bottom: 0;">
-          <label for="delete-confirm-input" class="form-label">Project name</label>
-          <input type="text" id="delete-confirm-input" class="form-input" placeholder="Type project name to confirm">
-          <span id="delete-error" class="form-error hidden"></span>
-        </div>
+        <div id="modal-error" class="alert-error hidden"></div>
+        <form id="agent-form" class="form-grid">
+          <div class="form-group">
+            <label for="agent-name" class="form-label">Name</label>
+            <input type="text" id="agent-name" class="form-input" placeholder="Local Agent" required>
+          </div>
+          <div class="form-group">
+            <label for="agent-url" class="form-label">Agent URL</label>
+            <input type="url" id="agent-url" class="form-input" placeholder="http://127.0.0.1:2080" required>
+            <span class="form-hint">Data plane endpoint that the control plane calls.</span>
+          </div>
+          <div class="form-group">
+            <label for="runtime-config" class="form-label">Runtime Config (JSON)</label>
+            <input type="text" id="runtime-config" class="form-input" placeholder='{"type":"opencode","url":"http://127.0.0.1:4096"}'>
+            <span class="form-hint">Runtime-specific configuration passed to the data plane.</span>
+          </div>
+          <div class="form-group">
+            <label for="runtime-link" class="form-label">Runtime Link</label>
+            <input type="url" id="runtime-link" class="form-input" placeholder="http://127.0.0.1:4096">
+            <span class="form-hint">Optional external link shown in the UI (e.g., OpenCode web UI).</span>
+          </div>
+        </form>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" id="delete-cancel-btn">Cancel</button>
-        <button type="button" class="btn btn-danger" id="delete-confirm-btn" disabled>Delete</button>
+        <button type="button" class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="modal-save-btn">Save</button>
       </div>
     </div>
   </div>
 
-  <script type="module" src="index.js"></script>
+  <!-- Delete Confirmation Modal -->
+  <div class="modal-backdrop" id="delete-modal" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" style="max-width: 420px;">
+      <div class="modal-header">
+        <h2 class="modal-title">Delete Agent</h2>
+      </div>
+      <div class="modal-body">
+        <p style="margin: 0 0 10px; color: var(--text-secondary);">Are you sure you want to delete this agent? This cannot be undone.</p>
+        <div id="delete-error" class="form-error hidden"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="delete-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-danger" id="delete-confirm-btn">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="agents.js"></script>
 </body>
 </html>

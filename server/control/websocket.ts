@@ -1,8 +1,8 @@
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import fp from 'fastify-plugin';
 import websocket, { WebSocket } from '@fastify/websocket';
-import type { SSEEvent } from './opencode.js';
-import { createComponentLogger } from './logger';
+import type { SSEEvent } from '../shared/types.js';
+import { createComponentLogger } from '../logger.js';
 
 const log = createComponentLogger('websocket');
 

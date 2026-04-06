@@ -31,6 +31,10 @@ export interface LogContext {
   stage?: string;
   operation?: string;
   component?: string;
+  /** 简短的原因/状态说明，例如 HTTP 状态码、错误名 */
+  reason?: string;
+  /** 结构化详情对象，用于存放复杂上下文 */
+  detail?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -164,21 +168,31 @@ class Logger {
     const merged = { ...this.defaultContext, ...context };
     const parts: string[] = [];
 
+    if (merged.component) {
+      parts.push(`[${merged.component}]`);
+    }
+    if (merged.operation) {
+      parts.push(`op=${merged.operation}`);
+    }
     if (merged.session_id) {
       parts.push(`session=${merged.session_id.slice(0, 8)}`);
     }
     if (merged.stage) {
       parts.push(`stage=${merged.stage}`);
     }
-    if (merged.operation) {
-      parts.push(`op=${merged.operation}`);
+    if (merged.reason) {
+      parts.push(`reason=${merged.reason}`);
     }
-    if (merged.component) {
-      parts.push(`[${merged.component}]`);
+    if (merged.detail && typeof merged.detail === 'object') {
+      for (const [key, value] of Object.entries(merged.detail)) {
+        if (value !== undefined) {
+          parts.push(`${key}=${typeof value === 'object' ? JSON.stringify(value) : value}`);
+        }
+      }
     }
 
-    // Add any extra context keys
-    const knownKeys = ['session_id', 'stage', 'operation', 'component'];
+    // Add any extra context keys (excluding known + reason/detail to avoid duplication)
+    const knownKeys = ['session_id', 'stage', 'operation', 'component', 'reason', 'detail', 'caller'];
     for (const [key, value] of Object.entries(merged)) {
       if (!knownKeys.includes(key) && value !== undefined) {
         parts.push(`${key}=${typeof value === 'object' ? JSON.stringify(value) : value}`);
@@ -186,6 +200,26 @@ class Logger {
     }
 
     return parts.length > 0 ? parts.join(' ') : '';
+  }
+
+  /**
+   * Resolve the real caller location from stack trace
+   */
+  private resolveCaller(): string | undefined {
+    const stack = new Error().stack;
+    if (!stack) return undefined;
+    const lines = stack.split('\n');
+    for (let i = 3; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line || /logger\.(ts|js)/i.test(line)) continue;
+      const match = line.match(/\s+at\s+(?:.*\s+\()?([^)]+)\)?/);
+      if (match) {
+        const raw = match[1];
+        const fileOnly = raw.replace(/^.*\/(server\/[^:]+):\d+.*$/, '$1').replace(/\.js$/, '.ts');
+        return fileOnly.includes('server/') ? fileOnly : raw.replace(/\.js$/, '.ts');
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -198,7 +232,11 @@ class Logger {
     error?: Error
   ): Promise<void> {
     const timestamp = new Date().toISOString();
+    const caller = this.resolveCaller();
     const mergedContext = { ...this.defaultContext, ...context };
+    if (caller) {
+      mergedContext.caller = caller;
+    }
 
     // Build log entry for file
     const entry: LogEntry = {

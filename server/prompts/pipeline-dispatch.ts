@@ -5,7 +5,7 @@
  * main agent to autonomously execute the entire pipeline.
  */
 
-import type { PipelineStage, PipelineMode } from '../pipeline';
+import type { PipelineStage, PipelineMode } from '../shared/types.js';
 
 export interface PlaybookContext {
   mode: PipelineMode;
@@ -17,12 +17,12 @@ export interface PlaybookContext {
 }
 
 const STAGE_VALIDATION: Record<PipelineStage, string> = {
-  clarify: `MUST return either: status = "confirmed" OR a list of questions (≤ 3). MUST produce a complete clarified requirement summary.`,
-  design: `MUST include: tech stack, architecture, API definition (if applicable), file structure. MUST be actionable for implementation.`,
-  task: `MUST contain concrete implementation tasks. EACH task MUST include: description and done criteria.`,
-  dev: `MUST include files_created or files_modified (non-empty). MUST match the design / task scope. Files MUST actually exist in the workspace directory.`,
-  test: `MUST include test_files or execution_result. MUST report pass/fail status.`,
-  review: `MUST include approved (true/false) and an issues list.`,
+  clarify: `MUST return JSON with: status="completed", clarified_requirements (string), assumptions (array), scope_boundaries (array), success_criteria (array). questions should be empty array [].`,
+  design: `MUST return JSON with: architecture (object with components, data_flow), tech_stack (object with exact versions), file_structure (files array with path/purpose/lines_estimate), api_design (endpoints with request/response schemas), implementation_notes (array), assumptions (array).`,
+  task: `[DEPRECATED - NOT USED] This stage has been removed from the pipeline.`,
+  dev: `MUST return JSON with: inputs_read (array), files (array with path/type/lines/description), tests (array with path/coverage), implementation_summary (string), requirements_coverage (array mapping requirements to implemented/tested status).`,
+  test: `MUST return JSON with: inputs_read (array), requirements_coverage (object with total/covered/partially_covered/not_covered), test_execution (object with total/passed/failed/skipped), failed_tests (array), gaps (array), recommendations (array).`,
+  review: `MUST return JSON with: inputs_read (array), approved (boolean), approval_conditions (array if approved), blockers (array if not approved), issues (array with severity/file/line/description), requirements_verification (array mapping requirements to satisfied status).`,
   validate: `MUST include status ("passed" or "failed") and verification details.`,
 };
 
@@ -33,12 +33,12 @@ function buildStageSubagentPrompt(
   const runDir = `${ctx.projectDir}/run-${ctx.sessionId}`;
 
   const stageSpecific: Record<PipelineStage, string> = {
-    clarify: `Please clarify the user requirements. Ask ≤ 3 questions if anything is unclear.`,
-    design: `Based on the clarified requirements, produce a technical design document. Read ${runDir}/clarify.json if you need the details.`,
-    task: `Based on the design, break the work into concrete implementation tasks. Read ${runDir}/design.json if you need the details.`,
-    dev: `Based on the task plan, implement the actual source code in ${ctx.workspaceDir}/. Read ${runDir}/task.json if you need the details.`,
-    test: `Based on the implementation, write and run tests. Verify functionality. Read ${runDir}/dev.json if you need the details.`,
-    review: `Review the implementation for quality, completeness, and alignment with the design. Read ${runDir}/dev.json and ${runDir}/test.json (if present).`,
+    clarify: `Please clarify the user requirements. Analyze the requirements and produce a clarified specification with assumptions and success criteria.`,
+    design: `Based on the clarified requirements, produce a comprehensive technical design. Read ${runDir}/clarify.json to understand the requirements, assumptions, and success criteria. Output structured design with architecture, tech stack (exact versions), file structure, and API contracts.`,
+    task: `[DEPRECATED] This stage has been removed. Do not use.`,
+    dev: `Based on the design specification, implement the actual source code in ${ctx.workspaceDir}/. Read ${runDir}/design.json for architecture, tech stack, file structure, and API contracts. Implement ALL files specified in the design, write tests, and verify requirements coverage.`,
+    test: `Based on the implementation, validate test coverage against requirements. Read ${runDir}/clarify.json for success criteria and ${runDir}/dev.json for implementation details. Run tests and report coverage gaps.`,
+    review: `Review the implementation for quality, security, and adherence to requirements. Read ${runDir}/clarify.json (requirements), ${runDir}/design.json (design spec), ${runDir}/dev.json (implementation), and ${runDir}/test.json (test results). Output approved: true/false with specific issues.`,
     validate: `Perform final verification that all requirements are met. Read previous stage outputs in ${runDir}/ if needed.`,
   };
 
@@ -121,10 +121,18 @@ ${stageEntries.join('\n\n')}
 8. If validation fails, retry the SAME stage up to 2 more times (3 total attempts). If it still fails, output:
    "❌ Pipeline halted at stage {stage_name}: {reason}"
    Then stop. Do not proceed to later stages.
-9. After ALL stages complete successfully, output a brief summary and return ONLY:
-   \`\`\`json
-   { "finish": "stop", "status": "completed" }
-   \`\`\`
+9. **DEV / TEST / REVIEW LOOP RULES** (applies when stage_order contains dev, test, review):
+   a. After \`dev\` completes, you MUST proceed to \`test\` if it exists in stage_order. Never skip \`test\` to go directly to \`review\`.
+   b. After \`test\` completes, read ${runDir}/test.json. If \`failed_tests\` is non-empty OR \`gaps\` contains items with severity "critical" or "high", you MUST go back to \`dev\` and fix the issues.
+   c. After \`review\` completes, read ${runDir}/review.json. If \`approved\` is NOT true, you MUST go back to \`dev\` and fix the issues.
+   d. When dispatching a rework \`dev\` task (2nd iteration or later), prepend the dev prompt with a REWORK header:
+      "== REWORK (Iteration {N}) ==\nReason: {test|review} reported issues.\nSummary: {brief summary of failed_tests, gaps, blockers, or issues}.\nFix the identified issues and maintain compatibility with existing code. =="
+   e. After ANY rework \`dev\` completes, you MUST proceed to \`test\` again. Do NOT skip \`test\`.
+   f. The dev→test→review loop may execute up to 3 iterations total. If you are about to start a 4th iteration of \`dev\`, output "❌ Pipeline halted: max dev/test/review iterations exceeded." and stop.
+10. After ALL stages complete successfully, output a brief summary and return ONLY:
+    \`\`\`json
+    { "finish": "stop", "status": "completed" }
+    \`\`\`
 
 === VALIDATION CHECKLIST ===
 ${validationEntries.join('\n')}

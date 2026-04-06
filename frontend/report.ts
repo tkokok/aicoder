@@ -4,9 +4,9 @@ interface SessionMetadata {
   projectName?: string;
   createdAt?: number;
   completedAt?: number;
-  opencodeUrl?: string;
+  runtimeUrl?: string;
   projectPath?: string;
-  opencodeSessionId?: string;
+  dataPlaneSessionId?: string;
 }
 
 interface ReportResponse {
@@ -47,9 +47,9 @@ function escapeHtml(text: string): string {
 }
 
 function buildMainAgentUrl(metadata: SessionMetadata): string | null {
-  if (!metadata.opencodeUrl || !metadata.projectPath || !metadata.opencodeSessionId) return null;
+  if (!metadata.runtimeUrl || !metadata.projectPath || !metadata.dataPlaneSessionId) return null;
   const base64Path = btoa(metadata.projectPath);
-  return `${metadata.opencodeUrl.replace(/\/$/, '')}/${base64Path}/session/${metadata.opencodeSessionId}`;
+  return `${metadata.runtimeUrl.replace(/\/$/, '')}/${base64Path}/session/${metadata.dataPlaneSessionId}`;
 }
 
 function renderMetadata(metadata: SessionMetadata): void {
@@ -164,9 +164,9 @@ async function fetchSession(sessionId: string): Promise<{ metadata: SessionMetad
     project_name?: string;
     created_at?: number;
     completed_at?: number;
-    opencode_url?: string;
+    runtime_url?: string;
     project_path?: string;
-    opencode_session_id?: string;
+    data_plane_session_id?: string;
   };
   
   const metadata: SessionMetadata = {
@@ -175,9 +175,9 @@ async function fetchSession(sessionId: string): Promise<{ metadata: SessionMetad
     projectName: sessionData.project_name,
     createdAt: sessionData.created_at,
     completedAt: sessionData.completed_at,
-    opencodeUrl: sessionData.opencode_url,
+    runtimeUrl: sessionData.runtime_url,
     projectPath: sessionData.project_path,
-    opencodeSessionId: sessionData.opencode_session_id,
+    dataPlaneSessionId: sessionData.data_plane_session_id,
   };
 
   let report: ReportResponse | null = null;
