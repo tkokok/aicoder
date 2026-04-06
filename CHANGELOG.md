@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.2.6] - 2026-04-06
+
+### Fixed
+- Release assets now correctly include `agents/` and `schemas/` directories required at runtime.
+
 ## [2.2.5] - 2026-04-06
 
 ### Added
