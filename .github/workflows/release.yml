@@ -26,7 +26,7 @@ jobs:
       - name: Package release assets
         run: |
           mkdir -p release/aicoder
-          cp -r dist frontend package.json release/aicoder/
+          cp -r dist frontend package.json README.md start.sh .env.example release/aicoder/
           tar -czf aicoder-${{ github.ref_name }}.tar.gz -C release aicoder
           zip -rq aicoder-${{ github.ref_name }}.zip release/aicoder
 
