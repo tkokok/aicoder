@@ -238,14 +238,14 @@
             <span class="form-hint">Data plane endpoint that the control plane calls.</span>
           </div>
           <div class="form-group">
-            <label for="opencode-local-url" class="form-label">OpenCode Local URL</label>
-            <input type="url" id="opencode-local-url" class="form-input" placeholder="http://127.0.0.1:4096" required>
-            <span class="form-hint">Address used by the data plane to connect to OpenCode.</span>
+            <label for="runtime-config" class="form-label">Runtime Config (JSON)</label>
+            <input type="text" id="runtime-config" class="form-input" placeholder='{"type":"opencode","url":"http://127.0.0.1:4096"}'>
+            <span class="form-hint">Runtime-specific configuration passed to the data plane.</span>
           </div>
           <div class="form-group">
-            <label for="opencode-public-url" class="form-label">OpenCode Public URL</label>
-            <input type="url" id="opencode-public-url" class="form-input" placeholder="http://127.0.0.1:4096" required>
-            <span class="form-hint">Address shown in project details for opening the OpenCode session.</span>
+            <label for="runtime-link" class="form-label">Runtime Link</label>
+            <input type="url" id="runtime-link" class="form-input" placeholder="http://127.0.0.1:4096">
+            <span class="form-hint">Optional external link shown in the UI (e.g., OpenCode web UI).</span>
           </div>
         </form>
       </div>

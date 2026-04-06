@@ -1,7 +1,7 @@
 interface SessionItem {
   id: string;
   status: string;
-  opencode_url: string | null;
+  runtime_url: string | null;
   current_agent: string | null;
   agent_name: string;
   project_name: string;

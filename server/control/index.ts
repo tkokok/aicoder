@@ -51,17 +51,17 @@ export async function startControlPlane(opts?: { port?: number }): Promise<void>
   }
 
   await fastify.listen({ port, host });
-  logger.info(`Control plane listening on ${host}:${port}`, { component: 'control-plane' });
+  logger.info(`Control plane listening on ${host}:${port}`, { component: 'control-plane', operation: 'start' });
 
   const shutdown = async (signal: string) => {
-    logger.info(`Received ${signal}, starting graceful shutdown...`, { component: 'control-plane', signal });
+    logger.info(`Received ${signal}, starting graceful shutdown...`, { component: 'control-plane', operation: 'shutdown', signal });
     try {
       await fastify.close();
       closeDb();
-      logger.info('Control plane closed successfully', { component: 'control-plane' });
+      logger.info('Control plane closed successfully', { component: 'control-plane', operation: 'shutdown' });
       process.exit(0);
     } catch (err) {
-      logger.error('Error during shutdown', err, { component: 'control-plane' });
+      logger.error('Error during shutdown', err, { component: 'control-plane', operation: 'shutdown' });
       process.exit(1);
     }
   };

@@ -293,7 +293,7 @@
               <span id="requirements-error" class="form-error hidden" role="alert"></span>
             </div>
 
-            <div class="form-group full" id="agent-selection-group" style="display: none;">
+            <div class="form-group full" id="agent-selection-group">
               <label for="agentId" class="form-label form-label-required">Agent</label>
               <select id="agentId" name="agentId" class="form-select">
                 <option value="">Loading agents...</option>
@@ -331,50 +331,6 @@
                         <option value="high">high</option>
                       </select>
                       <span id="reasoningEffort-hint" class="form-hint">Lower = faster & cheaper</span>
-                    </div>
-
-                    <div class="form-group full">
-                      <label class="form-label">OpenCode Environment</label>
-                      <div class="form-radio-group">
-                        <label class="form-radio">
-                          <input type="radio" name="opencodeEnv" value="external" id="opencode-env-external" checked>
-                          <span>External</span>
-                        </label>
-                        <label class="form-radio">
-                          <input type="radio" name="opencodeEnv" value="random" id="opencode-env-random">
-                          <span>Random (temporary local server)</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    <div class="form-group full" id="external-config">
-                      <div class="form-grid">
-                        <div class="form-group">
-                          <label for="opencodeUrl" class="form-label">OpenCode URL</label>
-                          <input type="url" id="opencodeUrl" name="opencodeUrl" class="form-input" value="http://127.0.0.1:4096">
-                          <span id="opencodeUrl-hint" class="form-hint">URL of the OpenCode server.</span>
-                          <span id="opencodeUrl-error" class="form-error hidden" role="alert"></span>
-                        </div>
-
-                        <div class="form-group">
-                          <label for="opencodeHeader" class="form-label">Custom Header</label>
-                          <input type="text" id="opencodeHeader" name="opencodeHeader" class="form-input" placeholder="X-Auth-Token: mytoken">
-                          <span id="opencodeHeader-hint" class="form-hint">Optional: Custom HTTP header in "Key: Value" format</span>
-                          <span id="opencodeHeader-error" class="form-error hidden" role="alert"></span>
-                        </div>
-
-                        <div class="form-group">
-                          <label for="opencodeUsername" class="form-label">Username</label>
-                          <input type="text" id="opencodeUsername" name="opencodeUsername" class="form-input" placeholder="user">
-                          <span id="opencodeUsername-error" class="form-error hidden" role="alert"></span>
-                        </div>
-
-                        <div class="form-group">
-                          <label for="opencodePassword" class="form-label">Password</label>
-                          <input type="password" id="opencodePassword" name="opencodePassword" class="form-input" placeholder="password">
-                          <span id="opencodePassword-error" class="form-error hidden" role="alert"></span>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </div>

@@ -2,8 +2,8 @@ interface Agent {
   id: string;
   name: string;
   agentUrl: string;
-  opencodeLocalUrl: string;
-  opencodePublicUrl: string;
+  runtimeConfig?: string;
+  runtimeLink?: string;
   createdAt: number;
 }
 
@@ -92,8 +92,8 @@ class AgentsPage {
           <tr>
             <th>Name</th>
             <th>Agent URL</th>
-            <th class="hide-sm">OpenCode Local</th>
-            <th class="hide-sm">OpenCode Public</th>
+            <th class="hide-sm">Runtime Config</th>
+            <th class="hide-sm">Runtime Link</th>
             <th style="text-align: right;">Actions</th>
           </tr>
         </thead>
@@ -102,8 +102,8 @@ class AgentsPage {
             <tr>
               <td><strong>${this.escapeHtml(a.name)}</strong></td>
               <td>${this.escapeHtml(a.agentUrl)}</td>
-              <td class="hide-sm">${this.escapeHtml(a.opencodeLocalUrl)}</td>
-              <td class="hide-sm">${this.escapeHtml(a.opencodePublicUrl)}</td>
+              <td class="hide-sm">${this.escapeHtml(a.runtimeConfig || '-')}</td>
+              <td class="hide-sm">${this.escapeHtml(a.runtimeLink || '-')}</td>
               <td style="text-align: right;">
                 <div style="display: inline-flex; gap: 8px;">
                   <button type="button" class="btn btn-primary" style="padding: 5px 10px;" data-action="edit" data-id="${this.escapeHtml(a.id)}">Edit</button>
@@ -135,8 +135,8 @@ class AgentsPage {
     if (this.modalTitle) this.modalTitle.textContent = 'Add Agent';
     this.setFormValue('agent-name', '');
     this.setFormValue('agent-url', 'http://127.0.0.1:2080');
-    this.setFormValue('opencode-local-url', 'http://127.0.0.1:4096');
-    this.setFormValue('opencode-public-url', 'http://127.0.0.1:4096');
+    this.setFormValue('runtime-config', '');
+    this.setFormValue('runtime-link', '');
     this.hideModalError();
     this.openModal();
   }
@@ -148,8 +148,8 @@ class AgentsPage {
     if (this.modalTitle) this.modalTitle.textContent = 'Edit Agent';
     this.setFormValue('agent-name', agent.name);
     this.setFormValue('agent-url', agent.agentUrl);
-    this.setFormValue('opencode-local-url', agent.opencodeLocalUrl);
-    this.setFormValue('opencode-public-url', agent.opencodePublicUrl);
+    this.setFormValue('runtime-config', agent.runtimeConfig || '');
+    this.setFormValue('runtime-link', agent.runtimeLink || '');
     this.hideModalError();
     this.openModal();
   }
@@ -219,16 +219,12 @@ class AgentsPage {
   private validateForm(): string | null {
     const name = this.getFormValue('agent-name');
     const agentUrl = this.getFormValue('agent-url');
-    const opencodeLocalUrl = this.getFormValue('opencode-local-url');
-    const opencodePublicUrl = this.getFormValue('opencode-public-url');
+    const runtimeLink = this.getFormValue('runtime-link');
 
     if (!name) return 'Name is required';
     if (!agentUrl) return 'Agent URL is required';
     if (!/^https?:\/\//i.test(agentUrl)) return 'Agent URL must start with http:// or https://';
-    if (!opencodeLocalUrl) return 'OpenCode Local URL is required';
-    if (!/^https?:\/\//i.test(opencodeLocalUrl)) return 'OpenCode Local URL must start with http:// or https://';
-    if (!opencodePublicUrl) return 'OpenCode Public URL is required';
-    if (!/^https?:\/\//i.test(opencodePublicUrl)) return 'OpenCode Public URL must start with http:// or https://';
+    if (runtimeLink && !/^https?:\/\//i.test(runtimeLink)) return 'Runtime link must start with http:// or https://';
     return null;
   }
 
@@ -242,8 +238,8 @@ class AgentsPage {
     const payload = {
       name: this.getFormValue('agent-name'),
       agentUrl: this.getFormValue('agent-url'),
-      opencodeLocalUrl: this.getFormValue('opencode-local-url'),
-      opencodePublicUrl: this.getFormValue('opencode-public-url'),
+      runtimeConfig: this.getFormValue('runtime-config'),
+      runtimeLink: this.getFormValue('runtime-link'),
     };
 
     if (this.modalSaveBtn) {

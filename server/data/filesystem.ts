@@ -80,12 +80,20 @@ export class LocalFileSystem {
       // ignore
     }
 
+    const debounceMs = 5000;
+    const lastHandledTimes = new Map<string, number>();
+
     const handleFile = async (filename: string | null) => {
       if (!filename || !filename.endsWith('.json') || filename === 'checkpoint.json') return;
+      const stage = filename.replace('.json', '');
+      const now = Date.now();
+      const last = lastHandledTimes.get(stage) || 0;
+      if (now - last < debounceMs) return;
+      lastHandledTimes.set(stage, now);
       try {
-        const data = await this.readStageOutput(sessionId, filename.replace('.json', ''));
+        const data = await this.readStageOutput(sessionId, stage);
         if (data) {
-          onStageComplete(filename.replace('.json', ''), data);
+          onStageComplete(stage, data);
         }
       } catch {
         // ignore parse/read errors

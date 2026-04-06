@@ -8,7 +8,7 @@
 
 import { join } from 'path';
 import * as yaml from 'js-yaml';
-import { OpenCodeClient } from './opencode.js';
+import type { AgentRuntime } from './runtime/types.js';
 import type {
   PipelineStage,
   PipelineMode,
@@ -47,12 +47,12 @@ export interface PipelineConfig {
 
 export interface ExecutePipelineOptions {
   sessionId: string;
-  opencodeSessionId: string;
+  dataPlaneSessionId: string;
   userInput?: string;
   playbook?: string;
   workspaceDir: string;
   projectDir: string;
-  client: OpenCodeClient;
+  runtime: AgentRuntime;
   agentsDir?: string;
   model?: string;
   mode?: PipelineMode;
@@ -312,7 +312,7 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
   };
 
   const sessionId = options.sessionId;
-  const opencodeSessionId = options.opencodeSessionId;
+  const dataPlaneSessionId = options.dataPlaneSessionId;
   const userInput = options.userInput;
   const pipelineMode: PipelineMode = ['full', 'standard', 'simple'].includes(options.mode || '')
     ? (options.mode as PipelineMode)
@@ -515,7 +515,7 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
   const pollMessages = async () => {
     if (completed) return;
     try {
-      const rawMessages = await options.client.getMessages(opencodeSessionId);
+      const rawMessages = await options.runtime.getMessages(dataPlaneSessionId);
       let hasNew = false;
       for (const msg of rawMessages) {
         const textParts = msg.parts
@@ -574,8 +574,8 @@ export async function executePipeline(options: ExecutePipelineOptions): Promise<
   try {
     const tSendStart = Date.now();
     await sendPromptWithRetry(
-      options.client,
-      opencodeSessionId,
+      options.runtime,
+      dataPlaneSessionId,
       [{ type: 'text', text: playbook }],
       finalConfig
     );
@@ -606,7 +606,7 @@ export function stopPipeline(sessionId: string): void {
 // ============================================================================
 
 async function sendPromptWithRetry(
-  client: OpenCodeClient,
+  runtime: AgentRuntime,
   sessionId: string,
   parts: PromptPart[],
   config: PipelineConfig
@@ -615,7 +615,7 @@ async function sendPromptWithRetry(
   while (attempt < config.maxRetries) {
     attempt++;
     try {
-      await client.sendMessage(sessionId, parts, { agent: 'AICoder', model: config.model, reasoningEffort: config.reasoningEffort });
+      await runtime.sendMessage(sessionId, parts, { agent: 'AICoder', model: config.model, reasoningEffort: config.reasoningEffort });
       return;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';

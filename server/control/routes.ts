@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db, transaction, generateId } from '../db.js';
 import { validateSessionInput, SessionInput } from '../validation.js';
-import { mkdir, cp, rm, stat, readFile, writeFile } from 'fs/promises';
+import { mkdir, rm, stat } from 'fs/promises';
 import { join, basename } from 'path';
 import { homedir } from 'os';
 import { exec } from 'child_process';
@@ -24,30 +24,25 @@ interface CreateSessionBody {
   mode?: unknown;
   pipelineMode?: unknown;
   existingPath?: unknown;
-  opencodeEnv?: unknown;
-  opencodeUrl?: unknown;
-  opencodeHeader?: unknown;
-  opencodeUsername?: unknown;
-  opencodePassword?: unknown;
-  reasoningEffort?: unknown;
   agentId?: unknown;
+  reasoningEffort?: unknown;
 }
 
 interface AgentBody {
   name: unknown;
   agentUrl: unknown;
-  opencodeLocalUrl: unknown;
-  opencodePublicUrl: unknown;
+  runtimeConfig?: unknown;
+  runtimeLink?: unknown;
 }
 
 interface SessionResponse {
   id: string;
   status: string;
-  opencode_url?: string;
+  runtime_url?: string;
 }
 
 function getAgentUrl(): string {
-  return process.env.DEFAULT_AGENT_URL || 'http://localhost:8443';
+  return process.env.DEFAULT_AGENT_URL || 'http://localhost:2080';
 }
 
 function requireString(value: unknown, fieldName: string): string {
@@ -66,8 +61,6 @@ function isValidHttpUrl(value: string): boolean {
   }
 }
 
-const USE_DATA_PLANE = process.env.USE_DATA_PLANE !== 'false';
-
 function sanitizeProjectName(name: string): string {
   return name
     .toLowerCase()
@@ -81,27 +74,8 @@ async function createProjectDirectory(projectName: string): Promise<string> {
   const sanitized = sanitizeProjectName(projectName);
   const baseDir = join(homedir(), '.aicoder', 'projects', sanitized);
 
-  await mkdir(join(baseDir, '.opencode'), { recursive: true });
-  await mkdir(join(baseDir, '.opencode', 'agent'), { recursive: true });
   await mkdir(join(baseDir, 'workspace'), { recursive: true });
   await mkdir(join(baseDir, 'logs'), { recursive: true });
-
-  const agentsSrc = join(process.cwd(), 'agents');
-  const agentsDest = join(baseDir, '.opencode', 'agent');
-  const schemasSrc = join(process.cwd(), 'schemas');
-  const schemasDest = join(baseDir, 'schemas');
-
-  try {
-    await cp(agentsSrc, agentsDest, { recursive: true, force: true });
-  } catch (error) {
-    logger.warn('Failed to copy agents directory, continuing...', { component: 'control-routes', operation: 'copy_agents', error: error instanceof Error ? error.message : String(error) });
-  }
-
-  try {
-    await cp(schemasSrc, schemasDest, { recursive: true, force: true });
-  } catch (error) {
-    logger.warn('Failed to copy schemas directory, continuing...', { component: 'control-routes', operation: 'copy_schemas', error: error instanceof Error ? error.message : String(error) });
-  }
 
   return baseDir;
 }
@@ -112,32 +86,6 @@ async function initGitRepo(dir: string): Promise<void> {
   } catch (error) {
     logger.warn('Failed to initialize git repo, continuing...', { component: 'control-routes', operation: 'git_init', error: error instanceof Error ? error.message : String(error) });
   }
-}
-
-async function injectAgentFrontmatter(agentPath: string, model: string, reasoningEffort?: string): Promise<void> {
-  const content = await readFile(agentPath, 'utf-8');
-  const frontmatterRegex = /^---\n([\s\S]*?)\n---\n/;
-  const match = content.match(frontmatterRegex);
-  let frontmatter = match ? match[1] : '';
-  if (/^model:/m.test(frontmatter)) {
-    frontmatter = frontmatter.replace(/^model:.*$/m, `model: ${model}`);
-  } else {
-    frontmatter = `model: ${model}\n${frontmatter}`;
-  }
-  if (reasoningEffort) {
-    if (/^reasoning_effort:/m.test(frontmatter)) {
-      frontmatter = frontmatter.replace(/^reasoning_effort:.*$/m, `reasoning_effort: ${reasoningEffort}`);
-    } else {
-      frontmatter = `reasoning_effort: ${reasoningEffort}\n${frontmatter}`;
-    }
-  }
-  if (!match) {
-    const newContent = `---\n${frontmatter}\n---\n\n${content}`;
-    await writeFile(agentPath, newContent, 'utf-8');
-    return;
-  }
-  const newContent = content.replace(frontmatterRegex, `---\n${frontmatter}\n---\n`);
-  await writeFile(agentPath, newContent, 'utf-8');
 }
 
 async function getGitRepoName(dir: string): Promise<string | null> {
@@ -157,18 +105,18 @@ async function getGitRepoName(dir: string): Promise<string | null> {
 
 export async function registerControlRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/api/config', async (_request, reply) => {
-    return reply.send({ useDataPlane: USE_DATA_PLANE });
+    return reply.send({ useDataPlane: true });
   });
 
   fastify.get('/api/agents', async (_request, reply) => {
     const rows = db.prepare(
-      'SELECT id, name, agent_url, opencode_local_url, opencode_public_url, created_at FROM agents ORDER BY created_at DESC'
+      'SELECT id, name, agent_url, runtime_config, runtime_link, created_at FROM agents ORDER BY created_at DESC'
     ).all() as Array<{
       id: string;
       name: string;
       agent_url: string;
-      opencode_local_url: string;
-      opencode_public_url: string;
+      runtime_config?: string;
+      runtime_link?: string;
       created_at: number;
     }>;
     return reply.send(
@@ -176,8 +124,8 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         id: r.id,
         name: r.name,
         agentUrl: r.agent_url,
-        opencodeLocalUrl: r.opencode_local_url,
-        opencodePublicUrl: r.opencode_public_url,
+        runtimeConfig: r.runtime_config || null,
+        runtimeLink: r.runtime_link || null,
         createdAt: r.created_at,
       }))
     );
@@ -186,23 +134,19 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
   fastify.post<{ Body: AgentBody }>('/api/agents', async (request, reply) => {
     const name = typeof request.body.name === 'string' ? request.body.name.trim() : '';
     const agentUrl = typeof request.body.agentUrl === 'string' ? request.body.agentUrl.trim() : '';
-    const opencodeLocalUrl = typeof request.body.opencodeLocalUrl === 'string' ? request.body.opencodeLocalUrl.trim() : '';
-    const opencodePublicUrl = typeof request.body.opencodePublicUrl === 'string' ? request.body.opencodePublicUrl.trim() : '';
+    const runtimeConfig = typeof request.body.runtimeConfig === 'string' ? request.body.runtimeConfig.trim() : '';
+    const runtimeLink = typeof request.body.runtimeLink === 'string' ? request.body.runtimeLink.trim() : '';
 
     const errors: string[] = [];
     if (!name) errors.push('Name is required');
     if (!agentUrl) errors.push('Agent URL is required');
     else if (!isValidHttpUrl(agentUrl)) errors.push('Agent URL must be a valid HTTP/HTTPS URL');
-    if (!opencodeLocalUrl) errors.push('OpenCode local URL is required');
-    else if (!isValidHttpUrl(opencodeLocalUrl)) errors.push('OpenCode local URL must be a valid HTTP/HTTPS URL');
-    if (!opencodePublicUrl) errors.push('OpenCode public URL is required');
-    else if (!isValidHttpUrl(opencodePublicUrl)) errors.push('OpenCode public URL must be a valid HTTP/HTTPS URL');
+    if (runtimeLink && !isValidHttpUrl(runtimeLink)) errors.push('Runtime link must be a valid HTTP/HTTPS URL');
 
     if (errors.length > 0) {
       return reply.status(400).send({ error: 'Validation failed', errors });
     }
 
-    // Health check agent URL
     try {
       const client = new AgentClient(agentUrl);
       await client.healthCheck();
@@ -213,27 +157,24 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
 
     const id = generateId();
     db.prepare(
-      'INSERT INTO agents (id, name, agent_url, opencode_local_url, opencode_public_url, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(id, name, agentUrl, opencodeLocalUrl, opencodePublicUrl, Date.now());
+      'INSERT INTO agents (id, name, agent_url, runtime_config, runtime_link, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(id, name, agentUrl, runtimeConfig || null, runtimeLink || null, Date.now());
 
-    return reply.status(201).send({ id, name, agentUrl, opencodeLocalUrl, opencodePublicUrl });
+    return reply.status(201).send({ id, name, agentUrl, runtimeConfig, runtimeLink });
   });
 
   fastify.put<{ Params: { id: string }; Body: AgentBody }>('/api/agents/:id', async (request, reply) => {
     const { id } = request.params;
     const name = typeof request.body.name === 'string' ? request.body.name.trim() : '';
     const agentUrl = typeof request.body.agentUrl === 'string' ? request.body.agentUrl.trim() : '';
-    const opencodeLocalUrl = typeof request.body.opencodeLocalUrl === 'string' ? request.body.opencodeLocalUrl.trim() : '';
-    const opencodePublicUrl = typeof request.body.opencodePublicUrl === 'string' ? request.body.opencodePublicUrl.trim() : '';
+    const runtimeConfig = typeof request.body.runtimeConfig === 'string' ? request.body.runtimeConfig.trim() : '';
+    const runtimeLink = typeof request.body.runtimeLink === 'string' ? request.body.runtimeLink.trim() : '';
 
     const errors: string[] = [];
     if (!name) errors.push('Name is required');
     if (!agentUrl) errors.push('Agent URL is required');
     else if (!isValidHttpUrl(agentUrl)) errors.push('Agent URL must be a valid HTTP/HTTPS URL');
-    if (!opencodeLocalUrl) errors.push('OpenCode local URL is required');
-    else if (!isValidHttpUrl(opencodeLocalUrl)) errors.push('OpenCode local URL must be a valid HTTP/HTTPS URL');
-    if (!opencodePublicUrl) errors.push('OpenCode public URL is required');
-    else if (!isValidHttpUrl(opencodePublicUrl)) errors.push('OpenCode public URL must be a valid HTTP/HTTPS URL');
+    if (runtimeLink && !isValidHttpUrl(runtimeLink)) errors.push('Runtime link must be a valid HTTP/HTTPS URL');
 
     if (errors.length > 0) {
       return reply.status(400).send({ error: 'Validation failed', errors });
@@ -248,14 +189,14 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
     }
 
     const result = db.prepare(
-      'UPDATE agents SET name = ?, agent_url = ?, opencode_local_url = ?, opencode_public_url = ? WHERE id = ?'
-    ).run(name, agentUrl, opencodeLocalUrl, opencodePublicUrl, id);
+      'UPDATE agents SET name = ?, agent_url = ?, runtime_config = ?, runtime_link = ? WHERE id = ?'
+    ).run(name, agentUrl, runtimeConfig || null, runtimeLink || null, id);
 
     if (result.changes === 0) {
       return reply.status(404).send({ error: 'Agent not found' });
     }
 
-    return reply.send({ id, name, agentUrl, opencodeLocalUrl, opencodePublicUrl });
+    return reply.send({ id, name, agentUrl, runtimeConfig, runtimeLink });
   });
 
   fastify.delete<{ Params: { id: string } }>('/api/agents/:id', async (request, reply) => {
@@ -272,7 +213,7 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
       SELECT
         s.id,
         s.status,
-        s.opencode_url,
+        COALESCE(a.runtime_link, '') as runtime_url,
         s.current_agent,
         s.created_at,
         s.completed_at,
@@ -288,7 +229,7 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
     `).all() as Array<{
       id: string;
       status: string;
-      opencode_url?: string;
+      runtime_url?: string;
       current_agent?: string;
       created_at: number;
       completed_at?: number;
@@ -303,7 +244,7 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
       rows.map((r) => ({
         id: r.id,
         status: r.status,
-        opencode_url: r.opencode_url || null,
+        runtime_url: r.runtime_url || null,
         current_agent: r.current_agent || null,
         agent_name: r.agent_name || (r.agent_id ? r.agent_id : 'local'),
         project_name: r.project_name,
@@ -316,8 +257,13 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
   });
 
   fastify.get('/api/models', async (_request, reply) => {
+    let agentUrl = getAgentUrl();
+    if (agentUrl === 'http://localhost:2080') {
+      const row = db.prepare('SELECT agent_url FROM agents ORDER BY created_at DESC LIMIT 1').get() as { agent_url: string } | undefined;
+      if (row) agentUrl = row.agent_url;
+    }
     try {
-      const agentClient = new AgentClient(getAgentUrl());
+      const agentClient = new AgentClient(agentUrl);
       const result = await agentClient.getModels();
       return reply.send(result);
     } catch (error) {
@@ -345,11 +291,6 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         pipelineMode: request.body.pipelineMode,
         existingPath: request.body.existingPath,
         agentId: request.body.agentId,
-        opencodeEnv: request.body.opencodeEnv,
-        opencodeUrl: request.body.opencodeUrl,
-        opencodeHeader: request.body.opencodeHeader,
-        opencodeUsername: request.body.opencodeUsername,
-        opencodePassword: request.body.opencodePassword,
         reasoningEffort: request.body.reasoningEffort,
       };
 
@@ -372,16 +313,6 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
 
       const mainModel = input.model && typeof input.model === 'string' ? input.model : 'zhipuai-coding-plan/glm-4.7-flashx';
       const subagentModel = input.subagentModel && typeof input.subagentModel === 'string' ? input.subagentModel : 'zhipuai-coding-plan/glm-4.7-flashx';
-      const reasoningEffort = input.reasoningEffort && typeof input.reasoningEffort === 'string' ? input.reasoningEffort : 'low';
-      const agentsDest = join(projectDir, '.opencode', 'agent');
-      try {
-        await injectAgentFrontmatter(join(agentsDest, 'AICoder.md'), mainModel, reasoningEffort);
-        for (const sub of ['clarify', 'design', 'task', 'dev', 'test', 'review', 'validate']) {
-          await injectAgentFrontmatter(join(agentsDest, `${sub}.md`), subagentModel, reasoningEffort);
-        }
-      } catch (err) {
-        logger.error('Failed to inject agent frontmatter', err, { component: 'control-routes', operation: 'inject_frontmatter' });
-      }
 
       let workspaceDir: string;
       let repoName: string | null = null;
@@ -432,7 +363,6 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
       const stageOrder = getStageOrder(pipelineMode);
       const userInput = requireString(input.requirements, 'requirements');
 
-      // Build playbook on control side
       const { buildPipelinePlaybook } = await import('../prompts/pipeline-dispatch.js');
       const playbook = buildPipelinePlaybook({
         mode: pipelineMode,
@@ -442,6 +372,15 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         workspaceDir,
         userInput,
       });
+
+      const agentId = typeof input.agentId === 'string' ? input.agentId.trim() : '';
+      if (!agentId) {
+        return reply.status(400).send({ error: 'Validation failed', errors: ['Agent is required'] });
+      }
+      const agent = db.prepare('SELECT id, name, agent_url, runtime_link FROM agents WHERE id = ?').get(agentId) as { id: string; name: string; agent_url: string; runtime_link?: string } | undefined;
+      if (!agent) {
+        return reply.status(400).send({ error: 'Validation failed', errors: ['Selected agent not found'] });
+      }
 
       try {
         transaction(() => {
@@ -469,69 +408,32 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         return reply.status(500).send({ error: 'Failed to create session' });
       }
 
-      // Determine agent configuration
-      let agentClient: AgentClient;
-      let startPipelineParams: Parameters<AgentClient['startPipeline']>[0];
-      let opencodePublicUrl: string;
-
-      if (USE_DATA_PLANE) {
-        const agentId = typeof input.agentId === 'string' ? input.agentId.trim() : '';
-        if (!agentId) {
-          return reply.status(400).send({ error: 'Validation failed', errors: ['Agent is required in remote mode'] });
-        }
-        const agent = db.prepare('SELECT id, name, agent_url, opencode_local_url, opencode_public_url FROM agents WHERE id = ?').get(agentId) as { id: string; name: string; agent_url: string; opencode_local_url: string; opencode_public_url: string } | undefined;
-        if (!agent) {
-          return reply.status(400).send({ error: 'Validation failed', errors: ['Selected agent not found'] });
-        }
-        agentClient = new AgentClient(agent.agent_url);
-        startPipelineParams = {
-          sessionId,
-          opencodeSessionId: '', // data plane will create it
-          playbook,
-          workspaceDir,
-          projectDir,
-          mode: pipelineMode,
-          model: mainModel,
-          reasoningEffort,
-          opencodeEnv: 'external',
-          opencodeUrl: agent.opencode_local_url,
-        };
-        opencodePublicUrl = agent.opencode_public_url;
-      } else {
-        agentClient = new AgentClient(getAgentUrl());
-        startPipelineParams = {
-          sessionId,
-          opencodeSessionId: '', // data plane will create it
-          playbook,
-          workspaceDir,
-          projectDir,
-          mode: pipelineMode,
-          model: mainModel,
-          reasoningEffort,
-          opencodeEnv: (input.opencodeEnv as 'random' | 'external') || 'external',
-          opencodeUrl: typeof input.opencodeUrl === 'string' ? input.opencodeUrl : undefined,
-          opencodeHeader: typeof input.opencodeHeader === 'string' ? input.opencodeHeader : undefined,
-          opencodeUsername: typeof input.opencodeUsername === 'string' ? input.opencodeUsername : undefined,
-          opencodePassword: typeof input.opencodePassword === 'string' ? input.opencodePassword : undefined,
-        };
-        opencodePublicUrl = startPipelineParams.opencodeUrl || 'http://127.0.0.1:4096';
-      }
+      const agentClient = new AgentClient(agent.agent_url);
+      const startPipelineParams = {
+        sessionId,
+        playbook,
+        workspaceDir,
+        projectDir,
+        mode: pipelineMode,
+        model: mainModel,
+        subagentModel,
+        reasoningEffort: input.reasoningEffort && typeof input.reasoningEffort === 'string' ? input.reasoningEffort : 'low',
+      };
 
       try {
         const startRes = await agentClient.startPipeline(startPipelineParams);
 
         db.prepare(
-          `UPDATE sessions SET opencode_session_id = ?, opencode_url = ?, agent_id = ? WHERE id = ?`
-        ).run(startRes.opencodeSessionId, opencodePublicUrl, USE_DATA_PLANE ? (typeof input.agentId === 'string' ? input.agentId.trim() : '') : '', sessionId);
+          `UPDATE sessions SET data_plane_session_id = ?, agent_id = ? WHERE id = ?`
+        ).run(startRes.dataPlaneSessionId, agentId, sessionId);
 
         return reply.status(201).send({
           id: sessionId,
           status: 'pending',
-          opencode_url: opencodePublicUrl,
+          runtime_url: startRes.runtimeUrl || agent.runtime_link || null,
         } as SessionResponse);
       } catch (error) {
         logger.error('Failed to start pipeline on agent', error, { component: 'control-routes', operation: 'start_pipeline', session_id: sessionId });
-        // Mark as failed
         db.prepare(`UPDATE sessions SET status = 'failed', completed_at = ? WHERE id = ?`).run(Date.now(), sessionId);
         return reply.status(502).send({ error: 'Failed to start pipeline on agent' });
       }
@@ -540,9 +442,25 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
 
   fastify.get<{ Params: { id: string } }>('/api/sessions/:id', async (request, reply) => {
     const { id } = request.params;
-    const session = db.prepare(
-      'SELECT id, opencode_session_id, status, opencode_url, project_path, workspace_path, repo_name, current_agent, latest_message, messages_json, stages_json, created_at, completed_at FROM sessions WHERE id = ?'
-    ).get(id) as { id: string; opencode_session_id?: string; status: string; opencode_url?: string; project_path?: string; workspace_path?: string; repo_name?: string; current_agent?: string; latest_message?: string; messages_json?: string; stages_json?: string; created_at: number; completed_at?: number } | undefined;
+    const session = db.prepare(`
+      SELECT
+        s.id,
+        s.data_plane_session_id,
+        s.status,
+        s.project_path,
+        s.workspace_path,
+        s.repo_name,
+        s.current_agent,
+        s.latest_message,
+        s.messages_json,
+        s.stages_json,
+        s.created_at,
+        s.completed_at,
+        COALESCE(a.runtime_link, '') as runtime_url
+      FROM sessions s
+      LEFT JOIN agents a ON s.agent_id = a.id
+      WHERE s.id = ?
+    `).get(id) as { id: string; data_plane_session_id?: string; status: string; project_path?: string; workspace_path?: string; repo_name?: string; current_agent?: string; latest_message?: string; messages_json?: string; stages_json?: string; created_at: number; completed_at?: number; runtime_url?: string } | undefined;
 
     if (!session) {
       return reply.status(404).send({ error: 'Session not found' });
@@ -560,13 +478,19 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
 
   fastify.delete<{ Params: { id: string } }>('/api/sessions/:id', async (request, reply) => {
     const { id } = request.params;
-    const session = db.prepare('SELECT id, project_path FROM sessions WHERE id = ?').get(id) as { id: string; project_path: string } | undefined;
+    const session = db.prepare('SELECT id, agent_id FROM sessions WHERE id = ?').get(id) as { id: string; agent_id?: string } | undefined;
     if (!session) {
       return reply.status(404).send({ error: 'Session not found' });
     }
 
+    let agentUrl = getAgentUrl();
+    if (session.agent_id) {
+      const agent = db.prepare('SELECT agent_url FROM agents WHERE id = ?').get(session.agent_id) as { agent_url: string } | undefined;
+      if (agent) agentUrl = agent.agent_url;
+    }
+
     try {
-      const agentClient = new AgentClient(getAgentUrl());
+      const agentClient = new AgentClient(agentUrl);
       await agentClient.stopPipeline(id);
     } catch {
       // ignore
@@ -578,13 +502,64 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
       db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
     });
 
-    try {
-      await rm(session.project_path, { recursive: true, force: true });
-    } catch (err) {
-      logger.warn('Failed to remove project directory', { component: 'control-routes', operation: 'delete_session', session_id: id, project_path: session.project_path, error: err instanceof Error ? err.message : String(err) });
+    return reply.status(204).send();
+  });
+
+  fastify.post<{ Params: { id: string } }>('/api/sessions/:id/refresh', async (request, reply) => {
+    const { id } = request.params;
+    const session = db.prepare('SELECT id, status, agent_id FROM sessions WHERE id = ?').get(id) as { id: string; status: string; agent_id?: string } | undefined;
+    if (!session) {
+      return reply.status(404).send({ error: 'Session not found' });
     }
 
-    return reply.status(204).send();
+    let agentUrl = getAgentUrl();
+    if (session.agent_id) {
+      const agent = db.prepare('SELECT agent_url FROM agents WHERE id = ?').get(session.agent_id) as { agent_url: string } | undefined;
+      if (agent) agentUrl = agent.agent_url;
+    }
+
+    let running = false;
+    try {
+      const agentClient = new AgentClient(agentUrl);
+      const statusRes = await agentClient.getPipelineStatus(id);
+      running = statusRes.running;
+    } catch {
+      // If we can't reach the agent, assume not running
+      running = false;
+    }
+
+    if (!running && session.status === 'running') {
+      db.prepare(`UPDATE sessions SET status = 'failed', completed_at = ? WHERE id = ?`).run(Date.now(), id);
+    }
+
+    const refreshed = db.prepare(`
+      SELECT
+        s.id,
+        s.data_plane_session_id,
+        s.status,
+        s.project_path,
+        s.workspace_path,
+        s.repo_name,
+        s.current_agent,
+        s.latest_message,
+        s.messages_json,
+        s.stages_json,
+        s.created_at,
+        s.completed_at,
+        COALESCE(a.runtime_link, '') as runtime_url
+      FROM sessions s
+      LEFT JOIN agents a ON s.agent_id = a.id
+      WHERE s.id = ?
+    `).get(id) as { id: string; data_plane_session_id?: string; status: string; project_path?: string; workspace_path?: string; repo_name?: string; current_agent?: string; latest_message?: string; messages_json?: string; stages_json?: string; created_at: number; completed_at?: number; runtime_url?: string } | undefined;
+
+    let stagesObj: Record<string, unknown> | null = null;
+    if (refreshed?.stages_json) {
+      try {
+        stagesObj = JSON.parse(refreshed.stages_json) as Record<string, unknown>;
+      } catch {}
+    }
+
+    return reply.send({ ...refreshed, stages: stagesObj, synced: !running && session.status === 'running' });
   });
 
   fastify.get<{ Params: { id: string } }>('/api/sessions/:id/report', async (request, reply) => {

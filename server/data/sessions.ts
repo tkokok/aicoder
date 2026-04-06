@@ -1,9 +1,9 @@
-import type { OpenCodeClient } from './opencode.js';
+import type { AgentRuntime } from './runtime/types.js';
 
 interface DataPlaneSession {
   sessionId: string;
-  opencodeSessionId: string;
-  client: OpenCodeClient;
+  dataPlaneSessionId: string;
+  runtime: AgentRuntime;
   projectDir: string;
   stopPipeline: () => void;
 }

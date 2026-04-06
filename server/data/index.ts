@@ -10,7 +10,7 @@ export async function startDataPlane(opts?: { port?: number }): Promise<void> {
   });
 
   fastify.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
-    log.error('Data plane request error', error, { path: request.url, method: request.method });
+    log.error('Data plane request error', error, { operation: 'request_error', path: request.url, method: request.method });
     reply.status(error.statusCode || 500).send({
       error: error.message || 'Internal Server Error',
     });
@@ -21,10 +21,10 @@ export async function startDataPlane(opts?: { port?: number }): Promise<void> {
   });
 
   fastify.addHook('onRequest', async (request) => {
-    log.debug(`→ ${request.method} ${request.url}`, { method: request.method, url: request.url });
+    log.debug(`→ ${request.method} ${request.url}`, { operation: 'request_in', method: request.method, url: request.url });
   });
   fastify.addHook('onResponse', async (request, reply) => {
-    log.debug(`← ${reply.statusCode} ${request.method} ${request.url}`, { method: request.method, url: request.url, status: reply.statusCode });
+    log.debug(`← ${reply.statusCode} ${request.method} ${request.url}`, { operation: 'request_out', method: request.method, url: request.url, status: reply.statusCode });
   });
 
   await fastify.register(registerDataRoutes);
@@ -33,16 +33,16 @@ export async function startDataPlane(opts?: { port?: number }): Promise<void> {
   const host = process.env.AGENT_HOST || '0.0.0.0';
 
   await fastify.listen({ port, host });
-  log.info(`Data plane listening on ${host}:${port}`, { port, host });
+  log.info(`Data plane listening on ${host}:${port}`, { operation: 'start', port, host });
 
   const shutdown = async (signal: string) => {
-    log.info(`Received ${signal}, shutting down data plane...`, { signal });
+    log.info(`Received ${signal}, shutting down data plane...`, { operation: 'shutdown', signal });
     try {
       await fastify.close();
-      log.info('Data plane closed', {});
+      log.info('Data plane closed', { operation: 'shutdown' });
       process.exit(0);
     } catch (err) {
-      log.error('Error during data plane shutdown', err, {});
+      log.error('Error during data plane shutdown', err, { operation: 'shutdown' });
       process.exit(1);
     }
   };

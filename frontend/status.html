@@ -241,7 +241,10 @@
   <div class="container">
     <header class="topbar">
       <h1>Pipeline Status</h1>
-      <a href="/" class="back">← Back to Projects</a>
+      <div style="display: inline-flex; gap: 10px; align-items: center;">
+        <button type="button" id="refresh-btn" class="back" style="cursor: pointer;">↻ Refresh</button>
+        <a href="/" class="back">← Back to Projects</a>
+      </div>
     </header>
 
     <table class="info-table">
@@ -255,7 +258,7 @@
           <td><span id="session-id">-</span></td>
         </tr>
         <tr>
-          <th>OpenCode URL</th>
+          <th>Runtime URL</th>
           <td><a id="opencode-url" href="#" target="_blank">-</a></td>
         </tr>
         <tr>

@@ -13,13 +13,7 @@ export class AgentClient {
     this.baseUrl = agentUrl.replace(/\/$/, '');
   }
 
-  async startPipeline(params: StartPipelineRequest & {
-    opencodeEnv?: 'random' | 'external';
-    opencodeUrl?: string;
-    opencodeHeader?: string;
-    opencodeUsername?: string;
-    opencodePassword?: string;
-  }): Promise<StartPipelineResponse> {
+  async startPipeline(params: StartPipelineRequest): Promise<StartPipelineResponse> {
     const response = await fetch(`${this.baseUrl}/pipeline/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -56,6 +50,17 @@ export class AgentClient {
     }
     const data = (await response.json()) as { messages: MessageInfo[] };
     return data.messages || [];
+  }
+
+  async getPipelineStatus(sessionId: string): Promise<{ running: boolean }> {
+    const response = await fetch(
+      `${this.baseUrl}/pipeline/${encodeURIComponent(sessionId)}/status`
+    );
+    if (!response.ok) {
+      const text = await response.text().catch(() => 'unknown');
+      throw new Error(`Agent getPipelineStatus error: ${response.status} ${text}`);
+    }
+    return (await response.json()) as { running: boolean };
   }
 
   async getModels(): Promise<{ models: ModelInfo[]; default: string }> {

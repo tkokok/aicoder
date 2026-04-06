@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { StartPipelineRequest } from '../shared/types.js';
 import { executePipeline, stopPipeline } from './pipeline.js';
 import { LocalFileSystem } from './filesystem.js';
-import { OpenCodeManager, type OpenCodeClientAuth } from './opencode.js';
+import { createAgentRuntime } from './runtime/factory.js';
 import { registerSession, getSession, unregisterSession } from './sessions.js';
 import { notifySSEEvent } from './callback.js';
 import { createComponentLogger } from '../logger.js';
@@ -11,13 +11,7 @@ const log = createComponentLogger('data-routes');
 
 export async function registerDataRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post('/pipeline/start', async (request, reply) => {
-    const body = request.body as StartPipelineRequest & {
-      opencodeEnv?: 'random' | 'external';
-      opencodeUrl?: string;
-      opencodeHeader?: string;
-      opencodeUsername?: string;
-      opencodePassword?: string;
-    };
+    const body = request.body as StartPipelineRequest;
 
     const {
       sessionId,
@@ -26,57 +20,34 @@ export async function registerDataRoutes(fastify: FastifyInstance): Promise<void
       projectDir,
       mode,
       model,
+      subagentModel,
       reasoningEffort,
     } = body;
 
-    const opencodeEnv = body.opencodeEnv || 'external';
-    const extraHeaders: Record<string, string> = {};
-    if (body.opencodeHeader && body.opencodeHeader.trim()) {
-      const headerStr = body.opencodeHeader.trim();
-      const colonIdx = headerStr.indexOf(':');
-      const eqIdx = headerStr.indexOf('=');
-      if (colonIdx > 0) {
-        extraHeaders[headerStr.slice(0, colonIdx).trim()] = headerStr.slice(colonIdx + 1).trim();
-      } else if (eqIdx > 0) {
-        extraHeaders[headerStr.slice(0, eqIdx).trim()] = headerStr.slice(eqIdx + 1).trim();
-      } else {
-        extraHeaders['x-custom-header'] = headerStr;
-      }
-    }
-
-    const auth = body.opencodeUsername && body.opencodePassword
-      ? { username: body.opencodeUsername, password: body.opencodePassword }
-      : undefined;
-
     try {
-      let client: import('./opencode.js').OpenCodeClient;
-      let opencodeUrl: string;
+      const runtime = await createAgentRuntime(projectDir);
 
-      if (opencodeEnv === 'random') {
-        const created = await OpenCodeManager.getOrCreate(projectDir);
-        client = created.client;
-        opencodeUrl = created.process.url;
-      } else {
-        opencodeUrl = body.opencodeUrl?.trim() || 'http://127.0.0.1:4096';
-        const created = OpenCodeManager.getOrCreateExternal(projectDir, opencodeUrl, { extraHeaders, auth });
-        client = created.client;
-      }
+      await runtime.prepareEnvironment(projectDir, {
+        mainModel: model || 'zhipuai-coding-plan/glm-4.7-flashx',
+        subagentModel: subagentModel || 'zhipuai-coding-plan/glm-4.7-flashx',
+        reasoningEffort,
+      });
 
-      const opencodeSession = await client.createSession({ title: sessionId });
-      const opencodeSessionId = opencodeSession.id;
+      const session = await runtime.createSession({ title: sessionId });
+      const dataPlaneSessionId = session.id;
 
-      // Subscribe to OpenCode SSE and forward events to control plane
-      const unsubscribeSSE = client.subscribeEvents((event) => {
+      // Subscribe to runtime events and forward events to control plane
+      const unsubscribeSSE = runtime.subscribeEvents((event) => {
         notifySSEEvent({ sessionId, event, timestamp: Date.now() }).catch(() => {});
       });
 
       const { stop } = await executePipeline({
         sessionId,
-        opencodeSessionId,
+        dataPlaneSessionId,
         playbook,
         workspaceDir,
         projectDir,
-        client,
+        runtime,
         mode,
         model,
         reasoningEffort,
@@ -85,26 +56,23 @@ export async function registerDataRoutes(fastify: FastifyInstance): Promise<void
       const cleanup = () => {
         stop();
         unsubscribeSSE();
-        if (opencodeEnv === 'random' && OpenCodeManager.isManagedProcess(projectDir)) {
-          OpenCodeManager.shutdown(projectDir);
-        }
+        runtime.shutdown(projectDir);
         unregisterSession(sessionId);
       };
 
       registerSession({
         sessionId,
-        opencodeSessionId,
-        client,
+        dataPlaneSessionId,
+        runtime,
         projectDir,
         stopPipeline: cleanup,
       });
 
-      log.info(`Pipeline started`, { session_id: sessionId, opencode_session_id: opencodeSessionId });
+      log.info(`Pipeline started`, { session_id: sessionId, data_plane_session_id: dataPlaneSessionId });
 
       return reply.status(201).send({
         pipelineId: sessionId,
-        opencodeSessionId,
-        opencodeUrl,
+        dataPlaneSessionId,
         status: 'started',
       });
     } catch (error) {
@@ -129,6 +97,12 @@ export async function registerDataRoutes(fastify: FastifyInstance): Promise<void
       stopPipeline(id);
     }
     return reply.send({ ok: true });
+  });
+
+  fastify.get('/pipeline/:id/status', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const session = getSession(id);
+    return reply.send({ running: !!session });
   });
 
   fastify.get('/output/:stage', async (request, reply) => {
@@ -163,7 +137,7 @@ export async function registerDataRoutes(fastify: FastifyInstance): Promise<void
       return reply.status(404).send({ error: 'Session not found on agent' });
     }
     try {
-      const messages = await session.client.getMessages(session.opencodeSessionId);
+      const messages = await session.runtime.getMessages(session.dataPlaneSessionId);
       return reply.send({ messages });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -173,20 +147,19 @@ export async function registerDataRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get('/models', async (_request, reply) => {
     try {
-      // Use a temporary project dir for model fetching
       const tempDir = process.env.TEMP_DIR || '/tmp/aicoder-models';
       const { mkdir } = await import('fs/promises');
       await mkdir(tempDir, { recursive: true });
-      const defaultUrl = process.env.AGENT_OPENCODE_URL || 'http://127.0.0.1:4096';
-      const { client } = OpenCodeManager.getOrCreateExternal(tempDir, defaultUrl);
-      const models = await client.getModels();
+      const runtime = await createAgentRuntime(tempDir);
+      const models = await runtime.getModels();
+      runtime.shutdown(tempDir);
       return reply.send({ models, default: 'zhipuai-coding-plan/glm-4.7-flashx' });
     } catch (error) {
       log.error('Failed to fetch models', error, { operation: 'fetch_models' });
       return reply.status(502).send({
         models: [],
         default: 'zhipuai-coding-plan/glm-4.7-flashx',
-        error: 'Failed to fetch models from OpenCode',
+        error: 'Failed to fetch models from runtime',
       });
     }
   });

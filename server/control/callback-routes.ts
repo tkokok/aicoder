@@ -25,7 +25,7 @@ export async function registerCallbackRoutes(fastify: FastifyInstance): Promise<
 
   fastify.post('/api/internal/stage-complete', async (request, reply) => {
     const event = request.body as StageCompleteCallback;
-    log.info(`Stage complete callback`, { session_id: event.sessionId, stage: event.stage, status: event.status });
+    log.info(`Stage complete callback`, { operation: 'stage_complete', session_id: event.sessionId, stage: event.stage, status: event.status });
 
     try {
       // Update stages_json and current_agent
@@ -55,14 +55,14 @@ export async function registerCallbackRoutes(fastify: FastifyInstance): Promise<
 
       return reply.send({ ok: true });
     } catch (error) {
-      log.error('Failed to process stage-complete callback', error, { session_id: event.sessionId });
+      log.error('Failed to process stage-complete callback', error, { operation: 'stage_complete', session_id: event.sessionId });
       return reply.status(500).send({ error: 'Internal error' });
     }
   });
 
   fastify.post('/api/internal/pipeline-complete', async (request, reply) => {
     const event = request.body as PipelineCompleteCallback;
-    log.info(`Pipeline complete callback`, { session_id: event.sessionId, status: event.status, error: event.error });
+    log.info(`Pipeline complete callback`, { operation: 'pipeline_complete', session_id: event.sessionId, status: event.status, error: event.error });
 
     try {
       const now = Date.now();
@@ -89,7 +89,7 @@ export async function registerCallbackRoutes(fastify: FastifyInstance): Promise<
 
       return reply.send({ ok: true });
     } catch (error) {
-      log.error('Failed to process pipeline-complete callback', error, { session_id: event.sessionId });
+      log.error('Failed to process pipeline-complete callback', error, { operation: 'pipeline_complete', session_id: event.sessionId });
       return reply.status(500).send({ error: 'Internal error' });
     }
   });
@@ -114,7 +114,7 @@ export async function registerCallbackRoutes(fastify: FastifyInstance): Promise<
 
       return reply.send({ ok: true });
     } catch (error) {
-      log.error('Failed to process pipeline-status callback', error, { session_id: event.sessionId });
+      log.error('Failed to process pipeline-status callback', error, { operation: 'pipeline_status', session_id: event.sessionId });
       return reply.status(500).send({ error: 'Internal error' });
     }
   });
@@ -147,7 +147,7 @@ export async function registerCallbackRoutes(fastify: FastifyInstance): Promise<
 
       return reply.send({ ok: true });
     } catch (error) {
-      log.error('Failed to process message-update callback', error, { session_id: event.sessionId });
+      log.error('Failed to process message-update callback', error, { operation: 'message_update', session_id: event.sessionId });
       return reply.status(500).send({ error: 'Internal error' });
     }
   });
@@ -158,7 +158,7 @@ export async function registerCallbackRoutes(fastify: FastifyInstance): Promise<
       (fastify as any).broadcastEvent?.(event.event);
       return reply.send({ ok: true });
     } catch (error) {
-      log.error('Failed to process sse-event callback', error, { session_id: event.sessionId });
+      log.error('Failed to process sse-event callback', error, { operation: 'sse_event', session_id: event.sessionId });
       return reply.status(500).send({ error: 'Internal error' });
     }
   });

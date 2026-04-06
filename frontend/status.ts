@@ -17,8 +17,8 @@ class StatusPage {
   private reconnectAttempts = 0;
   private sessionId: string | null = null;
   private pollTimer: number | null = null;
-  private opencodeUrl: string | null = null;
-  private opencodeSessionId: string | null = null;
+  private runtimeUrl: string | null = null;
+  private dataPlaneSessionId: string | null = null;
   private projectPath: string | null = null;
   private lastError: string | null = null;
 
@@ -44,6 +44,101 @@ class StatusPage {
         toggleBtn.setAttribute('aria-expanded', String(this.showFullHistory));
         this.renderActivity();
       });
+    }
+
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => this.handleRefresh(refreshBtn));
+    }
+  }
+
+  private async handleRefresh(btn: HTMLElement): Promise<void> {
+    if (!this.sessionId) return;
+    const originalText = btn.textContent || '↻ Refresh';
+    btn.textContent = 'Refreshing...';
+    btn.setAttribute('disabled', 'true');
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(this.sessionId)}/refresh`, { method: 'POST' });
+      if (!response.ok) return;
+      const data = (await response.json()) as Record<string, unknown>;
+
+      if (typeof data.runtime_url === 'string' && data.runtime_url) {
+        this.runtimeUrl = data.runtime_url;
+        this.updateRuntimeUrl(data.runtime_url);
+      }
+
+      if (typeof data.data_plane_session_id === 'string' && data.data_plane_session_id) {
+        this.dataPlaneSessionId = data.data_plane_session_id;
+      }
+
+      if (typeof data.project_path === 'string' && data.project_path) {
+        this.projectPath = data.project_path;
+        this.updateProjectDir(data.project_path);
+      }
+
+      this.updateMainAgentUrl();
+
+      const workspacePath = typeof data.workspace_path === 'string' && data.workspace_path
+        ? data.workspace_path
+        : typeof data.project_path === 'string' && data.project_path
+        ? data.project_path
+        : undefined;
+      if (workspacePath) {
+        this.updateWorkspacePath(workspacePath);
+      }
+
+      if (typeof data.repo_name === 'string' && data.repo_name) {
+        this.updateRepoName(data.repo_name);
+      }
+
+      const status = typeof data.status === 'string' ? data.status : 'pending';
+      const currentStage = typeof data.current_agent === 'string' ? data.current_agent : undefined;
+      const latestMessage = typeof data.latest_message === 'string' ? data.latest_message : undefined;
+      let messagesList: string[] | undefined;
+      if (data.messages_json && typeof data.messages_json === 'string') {
+        try {
+          messagesList = JSON.parse(data.messages_json) as string[];
+        } catch {}
+      }
+
+      if (messagesList !== undefined && messagesList.length > 0) {
+        this.currentMessages = messagesList;
+      } else if (latestMessage !== undefined) {
+        this.currentMessages = [latestMessage || 'Waiting for updates...'];
+      }
+      this.renderActivity();
+
+      let progressPercent: number | undefined;
+      let stages: Record<string, { status?: string }> | undefined;
+      if (data.stages && typeof data.stages === 'object' && data.stages !== null) {
+        stages = data.stages as Record<string, { status?: string }>;
+        progressPercent = this.calculateProgress(stages);
+      }
+
+      if (status === 'completed') {
+        this.updatePipelineState('Completed', 'completed');
+        this.updateProgress(100);
+      } else if (status === 'failed') {
+        const errorMsg = this.lastError || 'Pipeline failed';
+        this.updatePipelineState('Failed', 'failed', errorMsg);
+        this.updateProgress(0);
+      } else {
+        const rawStep = currentStage || 'Initializing';
+        const stepName = rawStep === 'completed'
+          ? 'Completed'
+          : rawStep === 'failed'
+          ? 'Failed'
+          : rawStep.replace(' agent', '');
+        this.updatePipelineState(stepName, 'running');
+        if (progressPercent !== undefined) {
+          this.updateProgress(progressPercent);
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      btn.textContent = originalText;
+      btn.removeAttribute('disabled');
     }
   }
 
@@ -78,13 +173,13 @@ class StatusPage {
       if (!response.ok) return;
       const data = (await response.json()) as Record<string, unknown>;
 
-      if (typeof data.opencode_url === 'string' && data.opencode_url) {
-        this.opencodeUrl = data.opencode_url;
-        this.updateOpenCodeUrl(data.opencode_url);
+      if (typeof data.runtime_url === 'string' && data.runtime_url) {
+        this.runtimeUrl = data.runtime_url;
+        this.updateRuntimeUrl(data.runtime_url);
       }
 
-      if (typeof data.opencode_session_id === 'string' && data.opencode_session_id) {
-        this.opencodeSessionId = data.opencode_session_id;
+      if (typeof data.data_plane_session_id === 'string' && data.data_plane_session_id) {
+        this.dataPlaneSessionId = data.data_plane_session_id;
       }
 
       if (typeof data.project_path === 'string' && data.project_path) {
@@ -398,7 +493,7 @@ class StatusPage {
     return Math.round((completed / stageNames.length) * 100);
   }
 
-  private updateOpenCodeUrl(url: string): void {
+  private updateRuntimeUrl(url: string): void {
     const el = document.getElementById('opencode-url') as HTMLAnchorElement | null;
     if (el) {
       el.href = url;
@@ -441,9 +536,9 @@ class StatusPage {
 
   private updateMainAgentUrl(): void {
     const el = document.getElementById('opencode-session-url') as HTMLAnchorElement | null;
-    if (!el || !this.opencodeUrl || !this.opencodeSessionId || !this.projectPath) return;
+    if (!el || !this.runtimeUrl || !this.dataPlaneSessionId || !this.projectPath) return;
     const base64Path = btoa(this.projectPath);
-    const url = `${this.opencodeUrl.replace(/\/$/, '')}/${base64Path}/session/${this.opencodeSessionId}`;
+    const url = `${this.runtimeUrl.replace(/\/$/, '')}/${base64Path}/session/${this.dataPlaneSessionId}`;
     el.href = url;
     el.textContent = url;
   }

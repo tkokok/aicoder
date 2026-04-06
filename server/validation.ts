@@ -16,9 +16,6 @@ const REQUIREMENTS_MIN_LENGTH = 10;
 const TECH_STACK_MAX_LENGTH = 200;
 const DEV_ENV_MAX_LENGTH = 200;
 const TEST_METHOD_MAX_LENGTH = 200;
-const OPENCODE_HEADER_MAX_LENGTH = 500;
-const OPENCODE_USERNAME_MAX_LENGTH = 200;
-const OPENCODE_PASSWORD_MAX_LENGTH = 500;
 
 const VALID_REASONSING_EFFORTS = ['low', 'medium', 'high'] as const;
 
@@ -171,11 +168,6 @@ export interface SessionInput {
   pipelineMode?: unknown;
   existingPath?: unknown;
   agentId?: unknown;
-  opencodeEnv?: unknown;
-  opencodeUrl?: unknown;
-  opencodeHeader?: unknown;
-  opencodeUsername?: unknown;
-  opencodePassword?: unknown;
   reasoningEffort?: unknown;
 }
 
@@ -245,35 +237,11 @@ export function validateSessionInput(input: SessionInput): ValidationResult {
     errors.push(modeResult);
   }
 
-  if (input.opencodeUrl !== undefined && input.opencodeUrl !== null && typeof input.opencodeUrl === 'string' && input.opencodeUrl.trim()) {
-    try {
-      new URL(input.opencodeUrl);
-    } catch {
-      log.warn('OpenCode URL validation failed: invalid URL', { field: 'opencode_url', reason: 'invalid_url' });
-      errors.push('OpenCode URL must be a valid URL');
-    }
-  }
-
-  if (input.opencodeHeader !== undefined && input.opencodeHeader !== null && typeof input.opencodeHeader === 'string' && input.opencodeHeader.trim().length > OPENCODE_HEADER_MAX_LENGTH) {
-    log.warn('OpenCode header validation failed: too long', { field: 'opencode_header', reason: 'max_length', length: input.opencodeHeader.length, max: OPENCODE_HEADER_MAX_LENGTH });
-    errors.push(`OpenCode header must be at most ${OPENCODE_HEADER_MAX_LENGTH} characters`);
-  }
-
-  if (input.opencodeUsername !== undefined && input.opencodeUsername !== null && typeof input.opencodeUsername === 'string' && input.opencodeUsername.trim().length > OPENCODE_USERNAME_MAX_LENGTH) {
-    log.warn('OpenCode username validation failed: too long', { field: 'opencode_username', reason: 'max_length' });
-    errors.push(`OpenCode username must be at most ${OPENCODE_USERNAME_MAX_LENGTH} characters`);
-  }
-
   if (input.reasoningEffort !== undefined && input.reasoningEffort !== null) {
     if (typeof input.reasoningEffort !== 'string' || !(VALID_REASONSING_EFFORTS as readonly string[]).includes(input.reasoningEffort)) {
       log.warn('Reasoning effort validation failed: invalid value', { field: 'reasoning_effort', reason: 'invalid_value', value: input.reasoningEffort });
       errors.push(`Reasoning effort must be one of: ${VALID_REASONSING_EFFORTS.join(', ')}`);
     }
-  }
-
-  if (input.opencodePassword !== undefined && input.opencodePassword !== null && typeof input.opencodePassword === 'string' && input.opencodePassword.length > OPENCODE_PASSWORD_MAX_LENGTH) {
-    log.warn('OpenCode password validation failed: too long', { field: 'opencode_password', reason: 'max_length' });
-    errors.push(`OpenCode password must be at most ${OPENCODE_PASSWORD_MAX_LENGTH} characters`);
   }
 
   if (errors.length === 0) {

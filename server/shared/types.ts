@@ -129,30 +129,25 @@ export interface ModelInfo {
   providerID: string;
 }
 
-export interface OpenCodeClientAuth {
-  username: string;
-  password: string;
-}
-
 // ============================================================================
 // Data Plane API Types
 // ============================================================================
 
 export interface StartPipelineRequest {
   sessionId: string;
-  opencodeSessionId: string;
   playbook?: string;
   workspaceDir: string;
   projectDir: string;
   mode: PipelineMode;
   model?: string;
+  subagentModel?: string;
   reasoningEffort?: string;
 }
 
 export interface StartPipelineResponse {
   pipelineId: string;
-  opencodeSessionId: string;
-  opencodeUrl: string;
+  dataPlaneSessionId: string;
+  runtimeUrl?: string;
   status: 'started' | 'failed';
   error?: string;
 }

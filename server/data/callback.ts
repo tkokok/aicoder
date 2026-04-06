@@ -14,6 +14,10 @@ const CALLBACK_TOKEN = process.env.CALLBACK_TOKEN;
 
 async function notifyControlPlane(path: string, payload: unknown): Promise<void> {
   const url = `${CONTROL_PLANE_URL.replace(/\/$/, '')}${path}`;
+  const sessionId = (payload as Record<string, unknown>)?.sessionId as string | undefined;
+  const eventType = (payload as Record<string, unknown>)?.event && typeof (payload as Record<string, unknown>).event === 'object'
+    ? ((payload as Record<string, unknown>).event as Record<string, unknown>)?.type as string | undefined
+    : undefined;
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -25,10 +29,21 @@ async function notifyControlPlane(path: string, payload: unknown): Promise<void>
     });
     if (!response.ok) {
       const text = await response.text().catch(() => 'unknown');
-      log.error(`Callback failed: ${response.status} ${text}`, undefined, { path, status: response.status });
+      log.error('Callback failed', undefined, {
+        operation: 'notifyControlPlane',
+        reason: `${response.status} ${text}`,
+        detail: { path, status: response.status, body: text.slice(0, 500) },
+        session_id: sessionId,
+        event_type: eventType,
+      });
     }
   } catch (error) {
-    log.error('Failed to send callback', error, { path });
+    log.error('Failed to send callback', error, {
+      operation: 'notifyControlPlane',
+      detail: { path },
+      session_id: sessionId,
+      event_type: eventType,
+    });
   }
 }
 
