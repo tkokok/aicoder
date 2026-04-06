@@ -9,6 +9,12 @@ import { createComponentLogger } from '../logger.js';
 
 const log = createComponentLogger('data-callback');
 
+// Ensure localhost callbacks bypass any system HTTP proxy
+if (!process.env.NO_PROXY?.includes('localhost') && !process.env.NO_PROXY?.includes('127.0.0.1')) {
+  const existing = process.env.NO_PROXY || '';
+  process.env.NO_PROXY = existing ? `${existing},localhost,127.0.0.1` : 'localhost,127.0.0.1';
+}
+
 const CONTROL_PLANE_URL = process.env.CONTROL_PLANE_URL || 'http://localhost:8080';
 const CALLBACK_TOKEN = process.env.CALLBACK_TOKEN;
 
@@ -18,6 +24,7 @@ async function notifyControlPlane(path: string, payload: unknown): Promise<void>
   const eventType = (payload as Record<string, unknown>)?.event && typeof (payload as Record<string, unknown>).event === 'object'
     ? ((payload as Record<string, unknown>).event as Record<string, unknown>)?.type as string | undefined
     : undefined;
+
   try {
     const response = await fetch(url, {
       method: 'POST',
