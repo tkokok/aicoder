@@ -486,13 +486,17 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         s.latest_message,
         s.messages_json,
         s.stages_json,
+        s.total_tokens_in,
+        s.total_tokens_out,
+        s.total_tokens_reasoning,
+        s.total_cost_usd,
         s.created_at,
         s.completed_at,
         COALESCE(a.runtime_link, '') as runtime_url
       FROM sessions s
       LEFT JOIN agents a ON s.agent_id = a.id
       WHERE s.id = ?
-    `).get(id) as { id: string; data_plane_session_id?: string; status: string; project_path?: string; workspace_path?: string; repo_name?: string; current_agent?: string; latest_message?: string; messages_json?: string; stages_json?: string; created_at: number; completed_at?: number; runtime_url?: string } | undefined;
+    `).get(id) as { id: string; data_plane_session_id?: string; status: string; project_path?: string; workspace_path?: string; repo_name?: string; current_agent?: string; latest_message?: string; messages_json?: string; stages_json?: string; total_tokens_in?: number; total_tokens_out?: number; total_tokens_reasoning?: number; total_cost_usd?: number; created_at: number; completed_at?: number; runtime_url?: string } | undefined;
 
     if (!session) {
       return reply.status(404).send({ error: 'Session not found' });
@@ -576,13 +580,17 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
         s.latest_message,
         s.messages_json,
         s.stages_json,
+        s.total_tokens_in,
+        s.total_tokens_out,
+        s.total_tokens_reasoning,
+        s.total_cost_usd,
         s.created_at,
         s.completed_at,
         COALESCE(a.runtime_link, '') as runtime_url
       FROM sessions s
       LEFT JOIN agents a ON s.agent_id = a.id
       WHERE s.id = ?
-    `).get(id) as { id: string; data_plane_session_id?: string; status: string; project_path?: string; workspace_path?: string; repo_name?: string; current_agent?: string; latest_message?: string; messages_json?: string; stages_json?: string; created_at: number; completed_at?: number; runtime_url?: string } | undefined;
+    `).get(id) as { id: string; data_plane_session_id?: string; status: string; project_path?: string; workspace_path?: string; repo_name?: string; current_agent?: string; latest_message?: string; messages_json?: string; stages_json?: string; total_tokens_in?: number; total_tokens_out?: number; total_tokens_reasoning?: number; total_cost_usd?: number; created_at: number; completed_at?: number; runtime_url?: string } | undefined;
 
     let stagesObj: Record<string, unknown> | null = null;
     if (refreshed?.stages_json) {

@@ -62,6 +62,11 @@ function runMigrations() {
     ['sessions', 'workspace_path', 'TEXT'],
     ['sessions', 'repo_name', 'TEXT'],
     ['sessions', 'agent_id', 'TEXT'],
+    // sessions token/cost 累计字段（roadmap 1.3）
+    ['sessions', 'total_tokens_in', 'INTEGER DEFAULT 0'],
+    ['sessions', 'total_tokens_out', 'INTEGER DEFAULT 0'],
+    ['sessions', 'total_tokens_reasoning', 'INTEGER DEFAULT 0'],
+    ['sessions', 'total_cost_usd', 'REAL DEFAULT 0'],
     // session_inputs 字段
     ['session_inputs', 'model', 'TEXT'],
     ['session_inputs', 'subagent_model', 'TEXT'],
@@ -86,7 +91,12 @@ function runMigrations() {
       const existing = rows.map(r => r.name);
       if (!existing.includes(column)) {
         log.info(`Running migration: ALTER TABLE ${table} ADD COLUMN ${column} ${type}`, { operation: 'migrate', table, column });
+        // Existing rows get the declared default; for new columns without DEFAULT in older schemas,
+        // backfill NULL → 0 so the cumulative math in callback-routes doesn't have to special-case it.
         db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+        if (type.includes('INTEGER') || type.includes('REAL')) {
+          db.exec(`UPDATE ${table} SET ${column} = 0 WHERE ${column} IS NULL`);
+        }
       }
     }
   })();

@@ -153,6 +153,21 @@ class StatusPage {
         this.updateRepoName(data.repo_name);
       }
 
+      // Cumulative token / cost usage. Read from session row populated by
+      // the control-plane message-update callback.
+      const tokensIn = typeof data.total_tokens_in === 'number' ? data.total_tokens_in : undefined;
+      const tokensOut = typeof data.total_tokens_out === 'number' ? data.total_tokens_out : undefined;
+      const tokensReasoning = typeof data.total_tokens_reasoning === 'number' ? data.total_tokens_reasoning : undefined;
+      const costUsd = typeof data.total_cost_usd === 'number' ? data.total_cost_usd : undefined;
+      if (
+        tokensIn !== undefined ||
+        tokensOut !== undefined ||
+        tokensReasoning !== undefined ||
+        costUsd !== undefined
+      ) {
+        this.updateUsage({ tokensIn, tokensOut, tokensReasoning, costUsd });
+      }
+
       const status = typeof data.status === 'string' ? data.status : 'pending';
       const currentStage = typeof data.current_agent === 'string' ? data.current_agent : undefined;
       const latestMessage = typeof data.latest_message === 'string' ? data.latest_message : undefined;
@@ -314,6 +329,19 @@ class StatusPage {
     if (progressPercent === undefined && data.stages && typeof data.stages === 'object' && data.stages !== null) {
       const stages = data.stages as Record<string, { status?: string }>;
       progressPercent = this.calculateProgress(stages);
+    }
+
+    // Live token / cost update from the broadcast event. The control-plane
+    // attaches the cumulative numbers under `usage`.
+    const usage = data.usage;
+    if (usage && typeof usage === 'object') {
+      const u = usage as Record<string, unknown>;
+      this.updateUsage({
+        tokensIn: typeof u.tokens_in === 'number' ? u.tokens_in : undefined,
+        tokensOut: typeof u.tokens_out === 'number' ? u.tokens_out : undefined,
+        tokensReasoning: typeof u.tokens_reasoning === 'number' ? u.tokens_reasoning : undefined,
+        costUsd: typeof u.cost_usd === 'number' ? u.cost_usd : undefined,
+      });
     }
 
     if (messagesList !== undefined && messagesList.length > 0) {
@@ -534,6 +562,40 @@ class StatusPage {
     const el = document.getElementById('repo-name');
     if (el) {
       el.textContent = name;
+    }
+  }
+
+  private updateUsage(usage: {
+    tokensIn?: number;
+    tokensOut?: number;
+    tokensReasoning?: number;
+    costUsd?: number;
+  }): void {
+    const fmtInt = (n: number | undefined): string => {
+      if (n === undefined || !Number.isFinite(n) || n <= 0) return '-';
+      return n.toLocaleString('en-US');
+    };
+    const fmtCost = (n: number | undefined): string => {
+      if (n === undefined || !Number.isFinite(n) || n <= 0) return '-';
+      if (n < 0.01) return `$${n.toFixed(4)}`;
+      return `$${n.toFixed(2)}`;
+    };
+
+    const setText = (id: string, value: string): void => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+    setText('usage-tokens-in', fmtInt(usage.tokensIn));
+    setText('usage-tokens-out', fmtInt(usage.tokensOut));
+    setText('usage-tokens-reasoning', fmtInt(usage.tokensReasoning));
+    setText('usage-cost', fmtCost(usage.costUsd));
+
+    // Hide the "no usage" hint as soon as we have any signal.
+    const empty = document.getElementById('usage-empty');
+    const hasAny = [usage.tokensIn, usage.tokensOut, usage.tokensReasoning, usage.costUsd]
+      .some((v) => v !== undefined && Number.isFinite(v) && v > 0);
+    if (empty && hasAny) {
+      empty.classList.add('hidden');
     }
   }
 

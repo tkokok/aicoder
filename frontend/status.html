@@ -179,6 +179,39 @@
     .step-row .muted { color: var(--text-muted); }
     .step-row .value { font-weight: 600; color: var(--text); }
 
+    .usage-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px 28px;
+      align-items: baseline;
+    }
+    .usage-cell {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 92px;
+    }
+    .usage-label {
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+    .usage-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-feature-settings: 'tnum';
+    }
+    .usage-empty {
+      margin-top: 6px;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+    .usage-empty.hidden { display: none; }
+
     .alert-error {
       margin-top: 12px;
       padding: 10px 12px;
@@ -310,6 +343,18 @@
         <tr>
           <th>Repo Name</th>
           <td><span id="repo-name">-</span></td>
+        </tr>
+        <tr>
+          <th>Usage</th>
+          <td>
+            <div class="usage-row">
+              <span class="usage-cell"><span class="usage-label">Tokens In</span><span id="usage-tokens-in" class="usage-value">-</span></span>
+              <span class="usage-cell"><span class="usage-label">Tokens Out</span><span id="usage-tokens-out" class="usage-value">-</span></span>
+              <span class="usage-cell"><span class="usage-label">Reasoning</span><span id="usage-tokens-reasoning" class="usage-value">-</span></span>
+              <span class="usage-cell"><span class="usage-label">Cost</span><span id="usage-cost" class="usage-value">-</span></span>
+            </div>
+            <div id="usage-empty" class="usage-empty">No usage reported yet — once the pipeline starts producing assistant messages, token &amp; cost will show up here.</div>
+          </td>
         </tr>
       </tbody>
     </table>

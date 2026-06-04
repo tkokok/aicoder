@@ -7,6 +7,10 @@ interface SessionMetadata {
   runtimeUrl?: string;
   projectPath?: string;
   dataPlaneSessionId?: string;
+  tokensIn?: number;
+  tokensOut?: number;
+  tokensReasoning?: number;
+  costUsd?: number;
 }
 
 interface ReportResponse {
@@ -38,6 +42,17 @@ function formatDate(timestamp: number): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatTokenCount(n: number | undefined): string {
+  if (n === undefined || !Number.isFinite(n) || n <= 0) return '-';
+  return n.toLocaleString('en-US');
+}
+
+function formatCost(n: number | undefined): string {
+  if (n === undefined || !Number.isFinite(n) || n <= 0) return '-';
+  if (n < 0.01) return `$${n.toFixed(4)}`;
+  return `$${n.toFixed(2)}`;
 }
 
 function escapeHtml(text: string): string {
@@ -79,6 +94,32 @@ function renderMetadata(metadata: SessionMetadata): void {
       label: 'Main Agent',
       value: `<a href="${escapeHtml(mainAgentUrl)}" target="_blank">${escapeHtml(mainAgentUrl)}</a>`,
     });
+  }
+
+  // Usage row: only render if we have any signal. Otherwise leave the row
+  // out so the report doesn't have a confusing "all dashes" line.
+  const hasUsage =
+    (metadata.tokensIn !== undefined && metadata.tokensIn > 0) ||
+    (metadata.tokensOut !== undefined && metadata.tokensOut > 0) ||
+    (metadata.tokensReasoning !== undefined && metadata.tokensReasoning > 0) ||
+    (metadata.costUsd !== undefined && metadata.costUsd > 0);
+  if (hasUsage) {
+    const usageTable = `
+      <table class="usage-table">
+        <thead>
+          <tr><th>Tokens In</th><th>Tokens Out</th><th>Reasoning</th><th>Cost</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>${escapeHtml(formatTokenCount(metadata.tokensIn))}</td>
+            <td>${escapeHtml(formatTokenCount(metadata.tokensOut))}</td>
+            <td>${escapeHtml(formatTokenCount(metadata.tokensReasoning))}</td>
+            <td>${escapeHtml(formatCost(metadata.costUsd))}</td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+    rows.push({ label: 'Usage', value: usageTable });
   }
 
   container.innerHTML = rows.map(row => `
@@ -167,8 +208,12 @@ async function fetchSession(sessionId: string): Promise<{ metadata: SessionMetad
     runtime_url?: string;
     project_path?: string;
     data_plane_session_id?: string;
+    total_tokens_in?: number;
+    total_tokens_out?: number;
+    total_tokens_reasoning?: number;
+    total_cost_usd?: number;
   };
-  
+
   const metadata: SessionMetadata = {
     id: sessionData.id,
     status: sessionData.status,
@@ -178,6 +223,10 @@ async function fetchSession(sessionId: string): Promise<{ metadata: SessionMetad
     runtimeUrl: sessionData.runtime_url,
     projectPath: sessionData.project_path,
     dataPlaneSessionId: sessionData.data_plane_session_id,
+    tokensIn: sessionData.total_tokens_in,
+    tokensOut: sessionData.total_tokens_out,
+    tokensReasoning: sessionData.total_tokens_reasoning,
+    costUsd: sessionData.total_cost_usd,
   };
 
   let report: ReportResponse | null = null;

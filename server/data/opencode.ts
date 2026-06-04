@@ -368,6 +368,24 @@ export class OpenCodeClient {
       parts: (m.parts ?? []) as MessagePart[],
       finish: m.info?.finish ?? undefined,
       time: m.info?.time ?? m.time ?? { created: 0 },
+      // Normalise OpenCode's free-form info blob into the typed MessageInfoMeta
+      // surface. Defensive: every field is independently optional because
+      // OpenCode's response shape varies across providers / message types.
+      info: (m.info?.tokens || m.info?.cost || m.info?.modelID || m.info?.providerID)
+        ? {
+            tokens: m.info.tokens
+              ? {
+                  input: Number(m.info.tokens.input) || 0,
+                  output: Number(m.info.tokens.output) || 0,
+                  reasoning: m.info.tokens.reasoning != null ? Number(m.info.tokens.reasoning) : undefined,
+                  cache: m.info.tokens.cache,
+                }
+              : undefined,
+            cost: m.info.cost != null ? Number(m.info.cost) : undefined,
+            modelID: m.info.modelID,
+            providerID: m.info.providerID,
+          }
+        : undefined,
     }));
 
     return mapped;

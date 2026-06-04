@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.3.0] - 2026-06-04
+
+### Added
+- **Cost & Token Tracking** (Roadmap 1.3). Sessions table now carries four cumulative columns (`total_tokens_in`, `total_tokens_out`, `total_tokens_reasoning`, `total_cost_usd`). The data plane's `getMessages` normalises OpenCode's free-form `info.tokens` / `info.cost` blob into a typed `MessageInfoMeta`; the control plane recomputes the cumulative totals on every `message-update` callback (deterministic over-write — no risk of double-counting because the data plane sends the full message list each poll).
+- Status page now shows a "Usage" row in the session details table (Tokens In / Out / Reasoning / Cost). Values stream in via the existing WebSocket `progress` event's new `usage` payload and reconcile with the periodic `/api/sessions/:id` poll.
+- Report page shows the same usage as a small monospace table when the session has any recorded usage (otherwise the row is omitted so the report stays clean).
+- New typed surfaces: `TokenUsage`, `MessageInfoMeta` in `server/shared/types.ts`.
+
+### Changed
+- `MessageInfo` now has an optional `info?: MessageInfoMeta` field carrying `tokens` / `cost` / `modelID` / `providerID`. Additive — existing consumers ignore it.
+- DB migration now backfills `0` for new `INTEGER` / `REAL` columns on existing rows (defensive against `NULL` in the cumulative math).
+- `GET /api/sessions/:id` and `GET /api/sessions/:id/refresh` SELECT and return the four new usage columns.
+
 ## [2.2.9] - 2026-06-04
 
 ### Added

@@ -122,9 +122,44 @@ export async function registerCallbackRoutes(fastify: FastifyInstance): Promise<
   fastify.post('/api/internal/message-update', async (request, reply) => {
     const event = request.body as MessageUpdateCallback;
     try {
+      // Recompute cumulative token / cost across the full messages array
+      // (the data plane sends the full list each poll, so this is a
+      // deterministic over-write — no risk of double-counting).
+      let tokensIn = 0;
+      let tokensOut = 0;
+      let tokensReasoning = 0;
+      let costUsd = 0;
+      for (const msg of event.messages) {
+        const info = msg.info;
+        if (!info) continue;
+        if (info.tokens) {
+          tokensIn += info.tokens.input || 0;
+          tokensOut += info.tokens.output || 0;
+          if (info.tokens.reasoning) tokensReasoning += info.tokens.reasoning;
+        }
+        if (typeof info.cost === 'number' && Number.isFinite(info.cost)) {
+          costUsd += info.cost;
+        }
+      }
+
       db.prepare(
-        `UPDATE sessions SET latest_message = ?, messages_json = ? WHERE id = ?`
-      ).run(event.latestMessage, event.messagesJson, event.sessionId);
+        `UPDATE sessions
+         SET latest_message = ?,
+             messages_json = ?,
+             total_tokens_in = ?,
+             total_tokens_out = ?,
+             total_tokens_reasoning = ?,
+             total_cost_usd = ?
+         WHERE id = ?`
+      ).run(
+        event.latestMessage,
+        event.messagesJson,
+        tokensIn,
+        tokensOut,
+        tokensReasoning,
+        costUsd,
+        event.sessionId
+      );
 
       const row = db.prepare('SELECT current_agent, stages_json FROM sessions WHERE id = ?').get(event.sessionId) as { current_agent?: string; stages_json?: string } | undefined;
       let stages: Record<string, { status?: string }> = {};
@@ -142,6 +177,12 @@ export async function registerCallbackRoutes(fastify: FastifyInstance): Promise<
           latest_message: event.latestMessage,
           messages_json: event.messagesJson,
           stages,
+          usage: {
+            tokens_in: tokensIn,
+            tokens_out: tokensOut,
+            tokens_reasoning: tokensReasoning,
+            cost_usd: costUsd,
+          },
         },
       });
 

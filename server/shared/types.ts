@@ -105,6 +105,30 @@ export interface MessagePart {
   text?: string;
 }
 
+/**
+ * Per-message token usage as reported by OpenCode's `info.tokens` field.
+ * Field names mirror OpenCode's shape; consumers should treat unknown
+ * fields as forward-compatible.
+ */
+export interface TokenUsage {
+  input: number;
+  output: number;
+  reasoning?: number;
+  cache?: { read?: number; write?: number };
+}
+
+/**
+ * Per-message metadata surface that the data plane normalises out of
+ * OpenCode's free-form `info` blob. Adding a field here is the contract
+ * change; consumers should treat it as best-effort.
+ */
+export interface MessageInfoMeta {
+  tokens?: TokenUsage;
+  cost?: number;
+  modelID?: string;
+  providerID?: string;
+}
+
 export interface MessageInfo {
   id: string;
   sessionID: string;
@@ -112,6 +136,11 @@ export interface MessageInfo {
   parts: MessagePart[];
   finish?: string;
   time: { created: number };
+  /**
+   * OpenCode-derived metadata. Only present when the underlying provider
+   * reports it (i.e. assistant messages with usage info).
+   */
+  info?: MessageInfoMeta;
 }
 
 export interface SSEEvent {
