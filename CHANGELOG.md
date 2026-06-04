@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.2.9] - 2026-06-04
 
 ### Added
 - **Pipeline resume API** (`POST /api/sessions/:id/resume`): control-plane endpoint that re-attaches a failed session to its data plane so the pipeline picks up from the last completed stage. Pairs with a new "Resume Pipeline" button on the status page that appears whenever a session ends in `failed` state.
