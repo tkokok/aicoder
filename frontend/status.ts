@@ -46,6 +46,51 @@ class StatusPage {
       });
     }
 
+    const resumeBtn = document.getElementById('resume-pipeline-btn');
+    if (resumeBtn) {
+      resumeBtn.addEventListener('click', () => this.resumePipeline());
+    }
+
+  }
+
+  private async resumePipeline(): Promise<void> {
+    const btn = document.getElementById('resume-pipeline-btn') as HTMLButtonElement | null;
+    if (!btn || !this.sessionId) return;
+    if (btn.disabled) return;
+
+    const originalLabel = btn.textContent || 'Resume Pipeline';
+    btn.disabled = true;
+    btn.textContent = 'Resuming...';
+
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(this.sessionId)}/resume`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        let detail = '';
+        try {
+          const body = (await response.json()) as { error?: string; reason?: string };
+          detail = body.reason || body.error || '';
+        } catch {
+          detail = `HTTP ${response.status}`;
+        }
+        this.showError(`Resume failed: ${detail || 'unknown error'}`);
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        return;
+      }
+
+      // Optimistically flip UI to running; the polling loop will reconcile.
+      btn.textContent = 'Resumed';
+      this.updatePipelineState('Resuming', 'running');
+      // Refresh immediately so the page picks up the new server-side state.
+      this.fetchSessionStatus();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.showError(`Resume request failed: ${msg}`);
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
   }
 
   private getSessionIdFromUrl(): string | null {
@@ -341,6 +386,7 @@ class StatusPage {
     const badgeEl = document.getElementById('pipeline-status-badge');
     const errorBox = document.getElementById('pipeline-error');
     const errorText = document.getElementById('pipeline-error-text');
+    const errorActions = document.getElementById('pipeline-error-actions');
 
     if (stepEl) {
       stepEl.textContent = step;
@@ -362,8 +408,10 @@ class StatusPage {
       if (status === 'failed' && error) {
         errorText.textContent = error;
         errorBox.classList.remove('hidden');
+        errorActions?.classList.remove('hidden');
       } else {
         errorBox.classList.add('hidden');
+        errorActions?.classList.add('hidden');
       }
     }
   }

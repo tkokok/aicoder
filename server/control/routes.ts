@@ -594,6 +594,82 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
     return reply.send({ ...refreshed, stages: stagesObj, synced: !running && session.status === 'running' });
   });
 
+  fastify.post<{ Params: { id: string } }>('/api/sessions/:id/resume', async (request, reply) => {
+    const { id } = request.params;
+    const session = db.prepare(`
+      SELECT
+        s.id,
+        s.status,
+        s.data_plane_session_id,
+        s.project_path,
+        s.workspace_path,
+        s.completed_at,
+        s.agent_id,
+        COALESCE(a.runtime_config, '') as runtime_config
+      FROM sessions s
+      LEFT JOIN agents a ON s.agent_id = a.id
+      WHERE s.id = ?
+    `).get(id) as { id: string; status: string; data_plane_session_id?: string; project_path?: string; workspace_path?: string; completed_at?: number; agent_id?: string; runtime_config?: string } | undefined;
+
+    if (!session) {
+      return reply.status(404).send({ error: 'Session not found' });
+    }
+
+    // Only failed or interrupted sessions can be resumed.
+    if (session.status !== 'failed') {
+      return reply.status(409).send({
+        error: 'Session cannot be resumed',
+        reason: `Session is in status "${session.status}", only "failed" sessions can be resumed`,
+      });
+    }
+
+    if (!session.data_plane_session_id) {
+      return reply.status(409).send({
+        error: 'Session cannot be resumed',
+        reason: 'Session is missing data_plane_session_id (was never started on an agent)',
+      });
+    }
+    if (!session.workspace_path || !session.project_path) {
+      return reply.status(409).send({
+        error: 'Session cannot be resumed',
+        reason: 'Session is missing workspace_path or project_path',
+      });
+    }
+
+    let agentUrl = getAgentUrl();
+    if (session.agent_id) {
+      const agent = db.prepare('SELECT agent_url FROM agents WHERE id = ?').get(session.agent_id) as { agent_url: string } | undefined;
+      if (agent) agentUrl = agent.agent_url;
+    }
+
+    const agentClient = new AgentClient(agentUrl);
+    try {
+      const result = await agentClient.resumePipeline({
+        sessionId: id,
+        dataPlaneSessionId: session.data_plane_session_id,
+        workspaceDir: session.workspace_path,
+        projectDir: session.project_path,
+        runtimeConfig: session.runtime_config || undefined,
+      });
+
+      // If attach returned alreadyRunning, the session is already in flight; keep status as is.
+      // Otherwise, mark it running again and clear completed_at.
+      if (!result.alreadyRunning) {
+        db.prepare(`UPDATE sessions SET status = 'running', completed_at = NULL WHERE id = ?`).run(id);
+      }
+
+      return reply.send({
+        id,
+        status: result.alreadyRunning ? session.status : 'running',
+        attached: result.attached,
+        alreadyRunning: !!result.alreadyRunning,
+      });
+    } catch (error) {
+      logger.error('Failed to resume pipeline', error, { component: 'control-routes', operation: 'resume_pipeline', session_id: id });
+      return reply.status(502).send({ error: 'Failed to resume pipeline on agent' });
+    }
+  });
+
   fastify.get<{ Params: { id: string } }>('/api/sessions/:id/report', async (request, reply) => {
     const { id } = request.params;
     const session = db.prepare('SELECT id, status FROM sessions WHERE id = ?').get(id) as { id: string; status: string } | undefined;

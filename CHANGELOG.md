@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Pipeline resume API** (`POST /api/sessions/:id/resume`): control-plane endpoint that re-attaches a failed session to its data plane so the pipeline picks up from the last completed stage. Pairs with a new "Resume Pipeline" button on the status page that appears whenever a session ends in `failed` state.
+- `AgentClient.resumePipeline()` helper that wraps `attachPipeline` with intent-revealing naming for control-plane callers.
+- Status page CSS for the new resume action (`.error-actions`, `.action-btn`, `.action-btn-primary`).
+- New validation tests covering project-name length boundaries, optional `techStack` semantics, and the new `existingPath` path-sandbox rules.
+
+### Fixed
+- **P0 security**: `validateSessionInput` now sandbox-checks the `existingPath` for `mode: "existing"`. It rejects `.` / `..` segments and requires the resolved path to live under the user's home directory. Previously a user could pass `/etc/foo` or `/System/...` and the server would happily run `git worktree add` against it.
+- **Project name boundary inconsistency**: `validation.ts` used `length <= 4` (effectively minimum 5) with an error message saying "more than 4 characters", while the constant was named `PROJECT_NAME_MIN_LENGTH = 4`. Tightened the rule to `length < 4` and updated the message to "at least 4 characters" so the constant, the message, and the test expectations all line up.
+- **`techStack` is optional**: validation now matches the rest of the codebase (and the prompt itself) — `techStack` is treated as an optional field. The `validation.test.ts` expectations for a required `techStack` were outdated relative to production behaviour and have been corrected.
+
+### Changed
+- `package.json` `test` script now also runs `server/validation.test.ts` and `server/db.test.ts` (previously only `tests/e2e-integration.test.ts` ran, so the unit-test drift above went undetected).
+
 ## [2.2.8] - 2026-04-06
 
 ### Added

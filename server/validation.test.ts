@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { homedir } from "os";
 import {
   validateProjectName,
   validateRequirements,
@@ -14,6 +15,10 @@ describe("validateProjectName", () => {
   });
 
   test("returns true for project name at minimum length", () => {
+    expect(validateProjectName("abcd")).toBe(true);
+  });
+
+  test("returns true for project name above minimum length", () => {
     expect(validateProjectName("abcde")).toBe(true);
   });
 
@@ -41,8 +46,16 @@ describe("validateProjectName", () => {
     expect(validateProjectName("   ")).toBe("Project name cannot be empty or whitespace-only");
   });
 
-  test("returns error for name too short", () => {
-    expect(validateProjectName("ab")).toBe("Project name must be more than 4 characters");
+  test("returns error for name too short (1 char)", () => {
+    expect(validateProjectName("a")).toBe("Project name must be at least 4 characters");
+  });
+
+  test("returns error for name too short (2 chars)", () => {
+    expect(validateProjectName("ab")).toBe("Project name must be at least 4 characters");
+  });
+
+  test("returns error for name too short (3 chars)", () => {
+    expect(validateProjectName("abc")).toBe("Project name must be at least 4 characters");
   });
 
   test("returns error for name too long", () => {
@@ -89,24 +102,24 @@ describe("validateTechStack", () => {
     expect(validateTechStack("TypeScript, React, Node.js")).toBe(true);
   });
 
-  test("returns true for empty tech stack (required check)", () => {
-    expect(validateTechStack("")).toBe("Tech stack cannot be empty or whitespace-only");
+  test("returns true for empty tech stack (optional field)", () => {
+    expect(validateTechStack("")).toBe(true);
   });
 
-  test("returns error for null input", () => {
-    expect(validateTechStack(null)).toBe("Tech stack is required");
+  test("returns true for null input (optional field)", () => {
+    expect(validateTechStack(null)).toBe(true);
   });
 
-  test("returns error for undefined input", () => {
-    expect(validateTechStack(undefined)).toBe("Tech stack is required");
+  test("returns true for undefined input (optional field)", () => {
+    expect(validateTechStack(undefined)).toBe(true);
+  });
+
+  test("returns true for whitespace-only string (optional field)", () => {
+    expect(validateTechStack("   ")).toBe(true);
   });
 
   test("returns error for non-string input", () => {
     expect(validateTechStack(123)).toBe("Tech stack must be a string");
-  });
-
-  test("returns error for whitespace-only string", () => {
-    expect(validateTechStack("   ")).toBe("Tech stack cannot be empty or whitespace-only");
   });
 
   test("returns error for tech stack too long", () => {
@@ -191,11 +204,22 @@ describe("validateSessionInput", () => {
     expect(result.errors).toHaveLength(0);
   });
 
-  test("returns valid for minimal valid input (required fields only)", () => {
+  test("returns valid for minimal valid input (only required fields)", () => {
     const result = validateSessionInput({
       projectName: "my-app",
       requirements: "Build a web application with React and TypeScript that has at least ten characters",
-      techStack: "TypeScript",
+    });
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test("returns valid for input with empty optional fields", () => {
+    const result = validateSessionInput({
+      projectName: "my-app",
+      requirements: "Build a web application with React and TypeScript that has at least ten characters",
+      techStack: "",
+      devEnv: "",
+      testMethod: "",
     });
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
@@ -205,47 +229,93 @@ describe("validateSessionInput", () => {
     const result = validateSessionInput({
       projectName: null,
       requirements: null,
-      techStack: null,
     });
     expect(result.valid).toBe(false);
     expect(result.errors).toContain("Project name is required");
     expect(result.errors).toContain("Requirements is required");
-    expect(result.errors).toContain("Tech stack is required");
-    expect(result.errors).toHaveLength(3);
+    expect(result.errors).toHaveLength(2);
   });
 
   test("returns errors for invalid project name", () => {
     const result = validateSessionInput({
       projectName: "ab",
       requirements: "Valid requirements here that are long enough",
-      techStack: "TypeScript",
     });
     expect(result.valid).toBe(false);
-    expect(result.errors).toContain("Project name must be more than 4 characters");
+    expect(result.errors).toContain("Project name must be at least 4 characters");
   });
 
   test("returns multiple errors for multiple invalid fields", () => {
     const result = validateSessionInput({
       projectName: "",
       requirements: "short",
-      techStack: "",
     });
     expect(result.valid).toBe(false);
     expect(result.errors).toContain("Project name cannot be empty or whitespace-only");
     expect(result.errors).toContain("Requirements must be at least 10 characters");
-    expect(result.errors).toContain("Tech stack cannot be empty or whitespace-only");
-    expect(result.errors).toHaveLength(3);
+    expect(result.errors).toHaveLength(2);
   });
 
   test("trims whitespace before validation", () => {
     const result = validateSessionInput({
       projectName: "   ",
       requirements: "   ",
-      techStack: "   ",
     });
     expect(result.valid).toBe(false);
     expect(result.errors).toContain("Project name cannot be empty or whitespace-only");
     expect(result.errors).toContain("Requirements cannot be empty or whitespace-only");
-    expect(result.errors).toContain("Tech stack cannot be empty or whitespace-only");
+  });
+
+  test("rejects existing mode without path", () => {
+    const result = validateSessionInput({
+      projectName: "my-app",
+      requirements: "Valid requirements here that are long enough",
+      mode: "existing",
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("Existing project path is required when mode is \"existing\"");
+  });
+
+  test("rejects existing mode with relative path", () => {
+    const result = validateSessionInput({
+      projectName: "my-app",
+      requirements: "Valid requirements here that are long enough",
+      mode: "existing",
+      existingPath: "relative/path",
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("Existing project path must be an absolute path");
+  });
+
+  test("rejects existing mode with path traversal segment", () => {
+    const result = validateSessionInput({
+      projectName: "my-app",
+      requirements: "Valid requirements here that are long enough",
+      mode: "existing",
+      existingPath: `${homedir()}/projects/../etc`,
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("Existing project path must not contain \".\" or \"..\" segments");
+  });
+
+  test("rejects existing mode with path outside home", () => {
+    const result = validateSessionInput({
+      projectName: "my-app",
+      requirements: "Valid requirements here that are long enough",
+      mode: "existing",
+      existingPath: "/etc/aicoder-test",
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("Existing project path must be under your home directory");
+  });
+
+  test("accepts existing mode with path under home", () => {
+    const result = validateSessionInput({
+      projectName: "my-app",
+      requirements: "Valid requirements here that are long enough",
+      mode: "existing",
+      existingPath: `${homedir()}/projects/foo`,
+    });
+    expect(result.valid).toBe(true);
   });
 });

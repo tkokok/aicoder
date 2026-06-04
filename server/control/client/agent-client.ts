@@ -23,7 +23,7 @@ export class AgentClient {
     workspaceDir: string;
     projectDir: string;
     runtimeConfig?: string;
-  }): Promise<{ attached: boolean; error?: string }> {
+  }): Promise<{ attached: boolean; alreadyRunning?: boolean; error?: string }> {
     const response = await fetch(`${this.baseUrl}/pipeline/${encodeURIComponent(params.sessionId)}/attach`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -33,7 +33,22 @@ export class AgentClient {
       const text = await response.text().catch(() => 'unknown');
       throw new Error(`Agent attachPipeline error: ${response.status} ${text}`);
     }
-    return (await response.json()) as { attached: boolean; error?: string };
+    return (await response.json()) as { attached: boolean; alreadyRunning?: boolean; error?: string };
+  }
+
+  /**
+   * Reattach a previously failed or interrupted session to its data plane.
+   * Uses the same /pipeline/:id/attach endpoint, which executes the pipeline
+   * with `resume: true` so that already-completed stages are skipped.
+   */
+  async resumePipeline(params: {
+    sessionId: string;
+    dataPlaneSessionId: string;
+    workspaceDir: string;
+    projectDir: string;
+    runtimeConfig?: string;
+  }): Promise<{ attached: boolean; alreadyRunning?: boolean; error?: string }> {
+    return this.attachPipeline(params);
   }
 
   async startPipeline(params: StartPipelineRequest & { runtimeConfig?: string }): Promise<StartPipelineResponse> {

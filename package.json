@@ -7,7 +7,7 @@
     "build": "rm -rf dist && tsc && cp frontend/*.html frontend/*.css dist/frontend/ 2>/dev/null || true",
     "build:release": "rm -rf dist && tsc -p tsconfig.release.json && cp frontend/*.html frontend/*.css dist/frontend/ 2>/dev/null || true",
     "start": "bun dist/server/index.js",
-    "test": "bun test tests/e2e-integration.test.ts",
+    "test": "bun test tests/e2e-integration.test.ts server/validation.test.ts server/db.test.ts",
     "lint": "echo \"No linter yet\" && exit 0"
   },
   "dependencies": {

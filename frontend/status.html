@@ -190,6 +190,35 @@
     }
     .alert-error strong { color: #fff; }
 
+    .error-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .action-btn {
+      font-size: 12.5px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .action-btn:hover:not(:disabled) { border-color: var(--text-muted); }
+    .action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .action-btn-primary {
+      background: var(--accent, #6366f1);
+      border-color: var(--accent, #6366f1);
+      color: #fff;
+    }
+    .action-btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+    .action-hint {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
     .activity-header {
       display: flex;
       align-items: center;
@@ -306,6 +335,10 @@
           <div id="pipeline-error" class="alert-error hidden">
             <strong>Pipeline Failed</strong>
             <p id="pipeline-error-text" style="margin: 6px 0 0;"></p>
+            <div id="pipeline-error-actions" class="error-actions hidden">
+              <button type="button" id="resume-pipeline-btn" class="action-btn action-btn-primary">Resume Pipeline</button>
+              <span class="action-hint">Picks up from the last completed stage</span>
+            </div>
           </div>
         </div>
       </div>

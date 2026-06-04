@@ -3,6 +3,8 @@
  */
 
 import { createComponentLogger } from './logger';
+import { homedir } from 'os';
+import { resolve, sep } from 'path';
 
 const log = createComponentLogger('validation');
 
@@ -42,9 +44,9 @@ export function validateProjectName(name: unknown): true | string {
     log.warn('Project name validation failed: empty', { field: 'project_name', reason: 'empty' });
     return "Project name cannot be empty or whitespace-only";
   }
-  if (trimmed.length <= PROJECT_NAME_MIN_LENGTH) {
+  if (trimmed.length < PROJECT_NAME_MIN_LENGTH) {
     log.warn('Project name validation failed: too short', { field: 'project_name', reason: 'min_length', length: trimmed.length, min: PROJECT_NAME_MIN_LENGTH });
-    return `Project name must be more than ${PROJECT_NAME_MIN_LENGTH} characters`;
+    return `Project name must be at least ${PROJECT_NAME_MIN_LENGTH} characters`;
   }
   if (trimmed.length > PROJECT_NAME_MAX_LENGTH) {
     log.warn('Project name validation failed: too long', { field: 'project_name', reason: 'max_length', length: trimmed.length, max: PROJECT_NAME_MAX_LENGTH });
@@ -203,6 +205,19 @@ function validateMode(mode: unknown, existingPath: unknown): true | string {
     }
     if (!pathTrimmed.startsWith('/')) {
       return 'Existing project path must be an absolute path';
+    }
+    // Path sandbox: reject path traversal segments and require the path
+    // to resolve under the user's home directory. `git worktree add` would
+    // happily create a worktree anywhere the running user can write to
+    // (e.g. /etc, /System), so we narrow the surface area here.
+    const segments = pathTrimmed.split('/').filter(Boolean);
+    if (segments.some((seg) => seg === '..' || seg === '.')) {
+      return 'Existing project path must not contain "." or ".." segments';
+    }
+    const home = resolve(homedir());
+    const resolved = resolve(pathTrimmed);
+    if (resolved !== home && !resolved.startsWith(home + sep)) {
+      return 'Existing project path must be under your home directory';
     }
   }
   return true;
