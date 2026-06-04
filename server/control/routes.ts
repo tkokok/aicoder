@@ -297,7 +297,7 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
       logger.error('Failed to fetch models via agent', error, { component: 'control-routes', operation: 'fetch_models' });
       return reply.status(502).send({
         models: [],
-        default: 'zhipuai-coding-plan/glm-4.7-flashx',
+        default: 'opencode/gpt-5-nano',
         error: 'Failed to fetch models from agent',
       });
     }
@@ -349,10 +349,10 @@ export async function registerControlRoutes(fastify: FastifyInstance): Promise<v
 
       const mainModel = input.model && typeof input.model === 'string' 
         ? input.model 
-        : agent.main_model || 'zhipuai-coding-plan/glm-4.7-flashx';
+        : agent.main_model || 'opencode/gpt-5-nano';
       const subagentModel = input.subagentModel && typeof input.subagentModel === 'string' 
         ? input.subagentModel 
-        : agent.subagent_model || 'zhipuai-coding-plan/glm-4.7-flashx';
+        : agent.subagent_model || 'opencode/gpt-5-nano';
 
       let workspaceDir: string;
       let repoName: string | null = null;

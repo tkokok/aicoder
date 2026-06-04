@@ -21,7 +21,7 @@ const res = await fetch('http://localhost:8443/pipeline/start', {
     workspaceDir: '/tmp/test-workspace',
     projectDir: '/tmp/test-project',
     mode: 'simple',
-    model: 'zhipuai-coding-plan/glm-4.7-flashx',
+    model: 'opencode/gpt-5-nano',
   }),
 });
 

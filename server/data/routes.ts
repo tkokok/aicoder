@@ -29,8 +29,8 @@ export async function registerDataRoutes(fastify: FastifyInstance): Promise<void
       const runtime = await createAgentRuntime(projectDir, runtimeConfig);
 
       await runtime.prepareEnvironment(projectDir, {
-        mainModel: model || 'zhipuai-coding-plan/glm-4.7-flashx',
-        subagentModel: subagentModel || 'zhipuai-coding-plan/glm-4.7-flashx',
+        mainModel: model || 'opencode/gpt-5-nano',
+        subagentModel: subagentModel || 'opencode/gpt-5-nano',
         reasoningEffort,
       });
 
@@ -209,12 +209,12 @@ export async function registerDataRoutes(fastify: FastifyInstance): Promise<void
       const runtime = await createAgentRuntime(tempDir);
       const models = await runtime.getModels();
       runtime.shutdown(tempDir);
-      return reply.send({ models, default: 'zhipuai-coding-plan/glm-4.7-flashx' });
+      return reply.send({ models, default: 'opencode/gpt-5-nano' });
     } catch (error) {
       log.error('Failed to fetch models', error, { operation: 'fetch_models' });
       return reply.status(502).send({
         models: [],
-        default: 'zhipuai-coding-plan/glm-4.7-flashx',
+        default: 'opencode/gpt-5-nano',
         error: 'Failed to fetch models from runtime',
       });
     }

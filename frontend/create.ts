@@ -29,7 +29,7 @@ interface ApiResponse {
 const API_ENDPOINT = '/api/sessions';
 const MODELS_ENDPOINT = '/api/models';
 const AGENTS_ENDPOINT = '/api/agents';
-const DEFAULT_MODEL = 'zhipuai-coding-plan/glm-4.7-flashx';
+const DEFAULT_MODEL = 'opencode/gpt-5-nano';
 
 interface AgentInfo {
   id: string;
